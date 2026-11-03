@@ -1,0 +1,76 @@
+# ===== Builds y CMake =====
+build/
+build-*/
+out/
+bt/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+Testing/
+_deps/
+
+# ===== Binarios y objetos =====
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dll
+*.dll.a
+*.exe
+*.pdb
+*.ilk
+
+# ===== Qt / Qt Creator =====
+*.user
+*.user.*
+.qtc_clangd/
+.qtcreator/
+
+# ===== vcpkg local (si se usa modo manifiesto) =====
+vcpkg_installed/
+
+# ===== Otros IDEs / editores =====
+.vscode/
+.idea/
+.vs/
+*.swp
+*~
+
+# ===== Sistema operativo =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Python (prototipos) =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# ===== Datos de observación (NO van al repo) =====
+data/
+datos/
+*.fits
+*.fit
+*.fts
+*.ser
+*.raw
+*.avi
+*.mp4
+*.mkv
+
+# ===== Resultados de experimentos =====
+# Los CSV generados por la CLI se guardan fuera o se suben a propósito
+results/
+output/
+*.log
+
+# ===== Excepción: recortes pequeños para tests =====
+!tests/data/
+!tests/data/**
