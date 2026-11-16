@@ -23,7 +23,9 @@ Ambos telescopios van en la misma montura (la "U"); cada cámara está fija a su
 | Eje del telescopio | Centro de la imagen | **Desconocido** (falta el píxel del detector C-SPAD) |
 | Láser visible | Sí | Sí, pero bastante más difícil de ver |
 
-Ojo: en el mensaje de Discord aparece "0,0003″/px" para la ASI585MC; es la incertidumbre. La escala es 0,0758″/px (206,265 × 2,9 µm / 7890 mm ≈ 0,0758).
+Ojo: en el mensaje de Teams aparece "0,0003″/px" para la ASI585MC; es la incertidumbre. La escala es 0,0758″/px (206,265 × 2,9 µm / 7890 mm ≈ 0,0758).
+
+**Convención del giro (resumen de calibración de Ángel):** es el ángulo de la cruz Az/El de la montura vista en la imagen, positivo en sentido antihorario, y se aplica a la imagen. Con +1,0° (receptor) la dirección +El se inclina 1° hacia la izquierda; con −0,76° (RASA), 0,76° hacia la derecha. Comprobable con sus números de Polaris y Matar.
 
 **Consecuencias:**
 - **Conversión px → Az/El**: hay que aplicar escala **y** giro de cada cámara. "Arriba = +El" implica que la fila de píxel crece hacia −El (signo invertido en y). Ángel expresa los desvíos en el cielo como **dAz·cos(El)** y dEl; para la montura (encoder) dAz = (dAz·cos El)/cos El. Confirmar cuál quiere en la salida.
@@ -41,6 +43,7 @@ Ojo: en el mensaje de Discord aparece "0,0003″/px" para la ASI585MC; es la inc
 
 **Formato de las capturas de ASICap** (ejemplo: `2026-10-28-1918_6-CapObj_0000.PNG`, Altair, ASI2600MM):
 - Nombre: `AAAA-MM-DD-HHMM_d-CapObj_NNNN.PNG`. La hora parece seguir el formato WinJUPOS: `1918_6` = 19:18 + 6 décimas de minuto = 19:18:36, en UTC (coincide con las series "…_19_18_..Z" de Ángel). `NNNN` = número de fotograma dentro de la serie. Confirmar.
+- El `.txt` empieza con una cabecera que **identifica la cámara** (`[ZWO ASI2600MM Pro]`) y sigue con líneas `Clave = Valor`, con unidades dentro del valor (`100ms`, `-0.5 C`, `6248 * 4176`). Incluye además `Brightness = 1` (offset o nivel de negro del sensor), `Hardware Bin = OFF`, `High Speed Mode = OFF`, `USB Limit = 100` y parámetros de autoexposición (no usada). La serie PNG de ejemplo es de sensor completo (`StartX = 0`, `StartY = 0`, 6248 × 4176) y su `.txt` no trae `StartCapture`/`EndCapture`/`FrameCount`. El `.txt` del vídeo AVI añade `Output Format = *.AVI`, `StartCapture`, `EndCapture`, `TimeZone = 0`, `FrameCount = 226` y `Capture Limit = No Limit`. **La ganancia cambia entre series** (606 en la serie PNG, 500 en el AVI): es un dato por serie, no fijo. La hora del nombre del AVI (`1916_5` = 19:16:30) frente a `StartCapture` (19:16:31,237) es coherente con que el nombre **trunca** las décimas de minuto.
 - Cada serie trae un fichero `.txt` con los ajustes de cámara: exposición (100 ms), ganancia (606), Bin 1, área de captura y su origen (StartX/StartY), formato RAW8, Debayer NONE, temperatura del sensor (−0,5 °C), **Flip = Horizon** y **Timestamp Frames = OFF**.
 - **Vídeos AVI** (ejemplo: `2026-10-28-1916_5-CapObj.AVI`, ASI2600MM, Altair): el `.txt` añade `StartCapture = 2026-10-28T19:16:31.237Z`, `EndCapture = 2026-10-28T19:17:35.494Z`, `TimeZone = 0` y `FrameCount = 226`. Eso da ~3,5 fps (≈0,286 s entre fotogramas, con 100 ms de exposición: el límite lo pone la lectura USB del sensor de 26 MP). Confirma que el nombre usa HHMM_décimas de minuto en UTC (1916_5 = 19:16:30). Tamaño: 226 × 6248 × 4176 bytes ≈ 5,9 GB sin comprimir.
 - La configuración PoC compila opencv4 **sin la opción ffmpeg** (olvido reconocido por Ángel): probablemente `cv::VideoCapture` no podrá abrir estos AVI sin compresión. Comprobar con `cv::getBuildInformation()` (apartado Video I/O). Sugerencia de Ángel: probar **QtMultimedia** (está en el entorno, con FFmpeg). Ojo: QtMultimedia está pensado para reproducir y puede convertir los fotogramas a color; hay que verificar que entrega los valores RAW8 sin alterar. Alternativas: convertir a secuencia de PNG, o un lector AVI propio (contenedor RIFF con fotogramas sin comprimir, sencillo). En Python, `opencv-python` sí trae FFmpeg.
@@ -111,16 +114,20 @@ Modos de la aplicación: estrellas / satélite / haz láser, sobre el mismo core
 ## 9. Preguntas abiertas
 Resueltas el 11/11/2026: salida de acimut (ambas formas), registro de la montura (en la carpeta de imágenes), señal de maniobra (la añadirá el ROA), volteo (no hace falta), FFmpeg (probar QtMultimedia), agrupación 2×2 (no se usa; experimentar), plate solving (faster-astap).
 
+Resueltas después (resumen de calibración): convención del giro (ver §2); píxel del C-SPAD (desconocido, primer punto de "qué falta" en la calibración).
+
 Pendientes:
 - Localizar el registro de posiciones de la montura en la carpeta de imágenes; si no está, avisar.
+- Cuándo se medirá el píxel del C-SPAD.
+- Patrón Bayer: Ángel cree que es RGGB. Con el volteo horizontal (ancho par) el mosaico guardado pasaría a GRBG. Se comprueba con la prueba de los subplanos sobre un PNG real.
+- Pregunta 3 mal entendida ("detección de estrellas evitando basura espacial"): reformularla si sigue haciendo falta (¿cómo distinguir estrella de satélite/basura en la imagen? ¿cómo validar el modo estrellas?).
 - Formato en que llegará la señal de "montura aplicando offsets" (para dejar el hueco preparado).
 - Envío de la algoritmia mejorada, el port de vcpkg de faster-astap y los índices.
 - ¿Añadirá FFmpeg a opencv4 si QtMultimedia no sirve?
-- ¿Patrón Bayer RGGB confirmado?
 - Si al final hay ZMQ, añadir zeromq/cppzmq a la configuración.
 
 ## 10. Organización
 - Comunicación: Discord con Ángel Vera (entorno, arquitectura, ASTAP) y los técnicos de la estación.
 - Plazo: final del cuatrimestre.
 - Registro de experimentos desde el primer día (técnica, parámetros, datos, resultado, decisión).
-- **Uso de la IA**:  La IA solo se usa para resolver dudas, sugerir ideas de algoritmos, revisar y hacer pruebas rápidas.
+**Uso de la IA**:  La IA solo se usa para resolver dudas, sugerir ideas de algoritmos, revisar y hacer pruebas rápidas.
