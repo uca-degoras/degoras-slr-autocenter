@@ -10,7 +10,6 @@
 Cada decisión lleva una etiqueta:
 
 - **[Decidido]**: lo ha decidido Juan de forma explícita.
-- **[Decidido]**: no lo ha decidido Juan. Es una propuesta con su justificación, pendiente de revisión.
 - **SUPUESTO**: depende de algo no confirmado por el ROA o no comprobado en el entorno. Se resuelve con la pregunta o la prueba indicada.
 
 Todo el pseudocódigo es C++20 sin implementación y no se ha compilado. Los nombres son provisionales.
@@ -227,16 +226,16 @@ Formato observado en los dos ficheros reales de la ASI2600MM, copiados en `tests
 - Un valor ilegible en una clave **opcional** se ignora y deja un aviso en `warnings`.
 - Una clave repetida: gana la última, con aviso.
 - Se aceptan finales de línea CRLF y LF, y se recortan los espacios alrededor de claves y valores. SUPUESTO: la codificación es ASCII o UTF-8.
-- Las claves desconocidas no generan aviso; solo se anotan en el log de depuración.
+- Las claves desconocidas no generan aviso; solo se anotan en el log de depuración **[Decidido]**.
 
-**Tabla modelo → `camera_id`.** Comparación exacta de la cabecera, recortados los espacios **[Decidido]**.
+**Tabla modelo → `camera_id`.** La cabecera se compara con la tabla **ignorando los espacios sobrantes al principio y al final** del nombre del modelo (dentro de los corchetes) y de la línea de cabecera; por lo demás, la comparación es exacta (distingue mayúsculas de minúsculas) **[Decidido]**.
 
 | Cabecera `[modelo]` | `camera_id` | Sensor completo | Estado |
 |---|---|---|---|
 | `ZWO ASI2600MM Pro` | `ASI2600MM` | 6248 × 4176 | Visto en los `.txt` reales |
 | `ZWO ASI585MC Pro` | `ASI585MC` | 3840 × 2160 | SUPUESTO: no hay `.txt` real de la 585MC; el texto se deduce por analogía |
 
-Si la cabecera no está en la tabla, `open()` no falla: avisa en `warnings` y usa el `camera_id` de la configuración o el respaldo por tamaño.
+Si la cabecera no está en la tabla, `open()` no falla: avisa en `warnings` y usa el `camera_id` de la configuración o el respaldo por tamaño **[Decidido]**.
 
 ---
 
@@ -510,6 +509,7 @@ Fuente que sirve una lista de fotogramas ya construidos en memoria. Permite prob
 | `.txt` con una clave repetida | Gana la última y avisa en `warnings` **[Decidido]** |
 | `Debayer Type ≠ NONE` o `Timestamp Frames = ON` en el `.txt` | `open()` abre y avisa en `warnings`; con `Timestamp Frames = ON`, hay que comprobar si ASICap dibuja la hora sobre la imagen (esos píxeles quedarían contaminados) **[Decidido]** |
 | Cabecera `[modelo]` que no está en la tabla | `open()` abre y avisa; usa la configuración o el tamaño **[Decidido]** |
+| Cabecera `[modelo]` con espacios sobrantes al principio o al final | Se ignoran: se comprueba igual contra la tabla **[Decidido]** |
 | `.txt` con finales de línea CRLF o LF | Se aceptan los dos |
 
 ---
@@ -545,7 +545,7 @@ Los tests siguen la regla de `CLAUDE.md`: datos sintéticos de solución conocid
     - `asi2600mm_serie_avi.txt`: lo mismo, con `gain = 500`, `sensor_temp_c = −0,7`, `output_format = "AVI"`, `start_capture = 2026-10-28T19:16:31,237 Z`, `end_capture = 2026-10-28T19:17:35,494 Z`, `frame_count = 226` y `TimeZone = 0` sin aviso. El periodo derivado es 64,257 s / 225 = 0,28559 s.
     - **La ganancia es por serie:** 606 en una y 500 en la otra.
     - Las claves conocidas sin uso (`Auto Exp Max Exp`, `USB Port`, etc.) no generan avisos ni fallos.
-    - Copias modificadas de los dos ficheros (generadas en el test): con una clave desconocida añadida, abre sin fallo ni aviso; sin una clave obligatoria (por ejemplo, `Gain`), `open()` falla y la nombra; con la cabecera `[ZWO ASI585MC Pro]` y 6248 × 4176, abre y avisa de la incoherencia; con finales de línea CRLF, el resultado es idéntico al de LF.
+    - Copias modificadas de los dos ficheros (generadas en el test): con una clave desconocida añadida, abre sin fallo ni aviso; sin una clave obligatoria (por ejemplo, `Gain`), `open()` falla y la nombra; con la cabecera `[ZWO ASI585MC Pro]` y 6248 × 4176, abre y avisa de la incoherencia; con espacios sobrantes al principio y al final del nombre del modelo (por ejemplo, `[ ZWO ASI2600MM Pro ]`) o de la línea de cabecera, se obtiene el mismo `camera_id`; con finales de línea CRLF, el resultado es idéntico al de LF.
 
 **Prueba propia con un PNG real de la ASI585MC (fase Bayer) [Decidido].** No es un test unitario: es una comprobación con material real, porque `pixel_format` no está validado (§2.2).
 
@@ -568,8 +568,6 @@ Límite de la prueba: identifica la diagonal verde, pero **no distingue rojo de 
 ## 9. Decisiones tomadas y alternativas descartadas
 
 Pensado para la memoria de I+D.
-
-**Nota de revisión y aceptación (2026-11-16).** En la copia local de Juan, las decisiones que la IA había propuesto en las rondas anteriores (hasta la PR #4) pasaron de **[Decidido]** a **[Decidido]** tras su revisión y aceptación. Lo mismo ocurre con las cuatro propuestas de la PR #5 que Juan ha aceptado. El historial de la PR #4 conserva las etiquetas originales. Las propuestas nuevas que sigan sin revisar llevan **[Decidido]**.
 
 | # | Decisión | Alternativas descartadas y motivo | Etiqueta |
 |---|---|---|---|
@@ -596,13 +594,14 @@ Pensado para la memoria de I+D.
 | — | Reparto de claves obligatorias y opcionales, lectura de unidades, claves repetidas, avisos con `Debayer Type` o `Timestamp Frames` (comprobar si ASICap dibuja la hora sobre la imagen), aviso si el `camera_id` de la configuración difiere del de la cabecera, `output_format = "PNG"` en series PNG y UTC en series PNG. | — | [Decidido] |
 | — | Fila de la ASI585MC en la tabla modelo → `camera_id` (`ZWO ASI585MC Pro`), deducida por analogía. | *Esperar a un `.txt` real*: bloquearía las pruebas de la 585MC. | SUPUESTO |
 | — | Truncado o redondeo de las décimas de minuto del nombre: hasta confirmarlo, `t0 + 1,5 s ± 4,5 s`. | *`t0 + 3 s ± 3 s` (solo truncado)*: el ejemplo real no distingue truncar de redondear. | SUPUESTO |
+| — | `black_level` solo informativo (no se resta como nivel de negro); la cabecera `[modelo]` se compara ignorando los espacios sobrantes al principio y al final; cabecera desconocida: se abre y se avisa; claves desconocidas solo en el log de depuración; orden de prioridad de `camera_id` (configuración, cabecera, tamaño). | *Restar `black_level`*: sus unidades en RAW8 no están confirmadas. *Fallar con una cabecera desconocida*: bloquearía una cámara nueva. | [Decidido] |
 | — | `Realtime` sobre series PNG exige periodo configurado, sin valor por defecto. | *Periodo por defecto de ~0,286 s*: es el de un AVI concreto; depende de la exposición, del recorte y del USB. | [Decidido] |
 
 ---
 
 ## 10. Preguntas abiertas
 
-### Para el ROA (Teams)
+### Para el ROA (Discord)
 
 1. ¿Los AVI de ASICap (los de calibración y los de pasadas) son siempre sin comprimir? ¿Qué `fourcc` usan y están en formato OpenDML (AVI > 2 GB)?
 2. **Pedir que añadan FFmpeg a opencv4** en la configuración PoC-proc-video, para que `cv::VideoCapture` abra los AVI. ¿Lo harán, o hay que seguir con la conversión a PNG o con el plan B?
