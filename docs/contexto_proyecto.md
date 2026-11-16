@@ -27,6 +27,8 @@ Ojo: en el mensaje de Teams aparece "0,0003″/px" para la ASI585MC; es la incer
 
 **Convención del giro (resumen de calibración de Ángel):** es el ángulo de la cruz Az/El de la montura vista en la imagen, positivo en sentido antihorario, y se aplica a la imagen. Con +1,0° (receptor) la dirección +El se inclina 1° hacia la izquierda; con −0,76° (RASA), 0,76° hacia la derecha. Comprobable con sus números de Polaris y Matar.
 
+**Convención del giro (resumen de calibración de Ángel):** es el ángulo de la cruz Az/El de la montura vista en la imagen, positivo en sentido antihorario, y se aplica a la imagen. Con +1,0° (receptor) la dirección +El se inclina 1° hacia la izquierda; con −0,76° (RASA), 0,76° hacia la derecha. Comprobable con sus números de Polaris y Matar.
+
 **Consecuencias:**
 - **Conversión px → Az/El**: hay que aplicar escala **y** giro de cada cámara. "Arriba = +El" implica que la fila de píxel crece hacia −El (signo invertido en y). Ángel expresa los desvíos en el cielo como **dAz·cos(El)** y dEl; para la montura (encoder) dAz = (dAz·cos El)/cos El. Confirmar cuál quiere en la salida.
 - **Muestreo**: con seeing ~2,7″, una estrella ocupa ~36 px de FWHM en la ASI585MC (muy sobremuestreada: se puede reducir resolución para ganar velocidad sin perder precisión) y ~1,4 px en la RASA (submuestreada: ahí el centroide subpíxel sí es crítico).
