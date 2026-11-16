@@ -1,0 +1,20 @@
+[ZWO ASI2600MM Pro]
+Exposure = 100ms
+Auto Exp Max Exp = 30000ms
+Gain = 606
+Auto Exp Max Gain = 337
+Bin = 1
+Hardware Bin = OFF
+Brightness = 1
+Auto Exp Target Brightness = 100
+Capture Area Size = 6248 * 4176
+Flip = Horizon
+Colour Format = RAW8
+Debayer Type = NONE
+Temperature = -0.5 C
+High Speed Mode = OFF
+USB Limit = 100
+USB Port = 3.0
+StartX = 0
+StartY = 0
+Timestamp Frames = OFF
