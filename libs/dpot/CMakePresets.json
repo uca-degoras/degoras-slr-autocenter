@@ -1,0 +1,135 @@
+{
+  "version": 10,
+  "cmakeMinimumRequired": { "major": 3, "minor": 31, "patch": 0 },
+
+  "vendor": {
+    "org.degoras.readme": [
+      "Same presets as DegorasDatabaseManager_PoF (copy of DegorasHelloWorlds/dp-presets-common.json), toolchain-",
+      "agnostic: the shell launched from D:/env decides the toolchain through DEVSYSTEM_TOOLCHAIN_ROOT,",
+      "DEVSYSTEM_TOOLCHAIN_ID, VCPKG_ROOT and VCPKG_DEFAULT_TRIPLET.",
+      "Builds land in $DEVSYSTEM_BUILDTREES/<project>/<toolchain-id>-<linkage>-<config> (ucrt64-dynamic-debug), plus",
+      "-qtcreator for the Qt Creator presets, which need their own tree (junctions). The project folder carries the",
+      "project name (${sourceDirName}). DEVSYSTEM_BUILDTREES should be the bare bt root.",
+      "PATH puts the vcpkg bin directory first, as in the database PoF; VCPKG_APPLOCAL_DEPS stays OFF.",
+      "CMAKE_SYSTEM_NAME / CMAKE_SYSTEM_PROCESSOR stay absent on purpose (cross-compiling side effects).",
+      "Do NOT put prose inside cacheVariables."
+    ]
+  },
+
+  "configurePresets": [
+    {
+      "name": "dp",
+      "hidden": true,
+      "generator": "Ninja",
+      "condition": {
+        "type": "allOf",
+        "conditions": [
+          { "type": "equals",    "lhs": "${hostSystemName}",              "rhs": "Windows" },
+          { "type": "notEquals", "lhs": "$env{DEVSYSTEM_TOOLCHAIN_ROOT}", "rhs": "" },
+          { "type": "notEquals", "lhs": "$env{DEVSYSTEM_TOOLCHAIN_ID}",   "rhs": "" },
+          { "type": "notEquals", "lhs": "$env{VCPKG_ROOT}",               "rhs": "" },
+          { "type": "notEquals", "lhs": "$env{VCPKG_DEFAULT_TRIPLET}",    "rhs": "" },
+          { "type": "notEquals", "lhs": "$env{DEVSYSTEM_BUILDTREES}",     "rhs": "" },
+          { "type": "notEquals", "lhs": "$env{DEVSYSTEM_DEPLOYS}",        "rhs": "" }
+        ]
+      },
+      "cmakeExecutable": "$env{DEVSYSTEM_TOOLCHAIN_ROOT}/bin/cmake.exe",
+      "binaryDir": "$env{DEVSYSTEM_BUILDTREES}/${sourceDirName}/$env{DEVSYSTEM_TOOLCHAIN_ID}-$env{DP_LINKAGE}-$env{DP_CONFIG}$env{DP_SUFFIX}",
+      "installDir": "$env{DEVSYSTEM_DEPLOYS}/${sourceDirName}/$env{DEVSYSTEM_TOOLCHAIN_ID}-$env{DP_LINKAGE}-$env{DP_CONFIG}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_CXX_COMPILER": "$env{DEVSYSTEM_TOOLCHAIN_ROOT}/bin/g++.exe",
+        "CMAKE_MAKE_PROGRAM": "$env{DEVSYSTEM_TOOLCHAIN_ROOT}/bin/ninja.exe",
+        "CMAKE_FIND_PACKAGE_PREFER_CONFIG": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_COLOR_DIAGNOSTICS": "ON",
+        "CMAKE_CXX_FLAGS": "-D__USE_MINGW_ANSI_STDIO=1",
+        "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=lld",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fuse-ld=lld",
+        "CMAKE_MODULE_LINKER_FLAGS": "-fuse-ld=lld",
+        "VCPKG_TARGET_TRIPLET": "$env{VCPKG_DEFAULT_TRIPLET}",
+        "VCPKG_HOST_TRIPLET": "$env{VCPKG_DEFAULT_TRIPLET}",
+        "VCPKG_MANIFEST_MODE": "OFF",
+        "VCPKG_APPLOCAL_DEPS": "OFF",
+        "CMAKE_PREFIX_PATH": "$env{VCPKG_ROOT}/installed/$env{VCPKG_DEFAULT_TRIPLET}"
+      },
+      "environment": {
+        "DP_LINKAGE": "dynamic", "DP_CONFIG": "debug", "DP_SUFFIX": "",
+        "PATH": "$env{VCPKG_ROOT}/installed/$env{VCPKG_DEFAULT_TRIPLET}/bin;$env{DEVSYSTEM_TOOLCHAIN_ROOT}/bin;$penv{PATH}"
+      }
+    },
+    {
+      "name": "qtcreator-dp",
+      "hidden": true,
+      "inherits": "dp",
+      "environment": { "DP_SUFFIX": "-qtcreator" },
+      "vendor": {
+        "qt.io/QtCreator/1.0": {
+          "AskBeforePresetsReload": false,
+          "AskReConfigureInitialParams": false,
+          "AutorunCMake": false,
+          "PackageManagerAutoSetup": false,
+          "ShowAdvancedOptionsByDefault": true,
+          "ShowSourceSubfolders": true,
+          "UseJunctionsForSourceAndBuildDirectories": true,
+          "debugger": {
+            "DisplayName": "DP-GDB",
+            "Abis": [ "x86-windows-msys-pe-64bit" ],
+            "Binary": "$env{DEVSYSTEM_TOOLCHAIN_ROOT}/bin/gdb.exe",
+            "EngineType": 1,
+            "Version": "17.2"
+          }
+        }
+      }
+    },
+    { "name": "dp-deb", "displayName": "DP Debug",   "inherits": "dp", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "dp-rel", "displayName": "DP Release", "inherits": "dp", "environment": { "DP_CONFIG": "release" }, "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "qtcreator-dp-deb", "displayName": "QtCreator: DP Debug",   "inherits": "qtcreator-dp", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "qtcreator-dp-rel", "displayName": "QtCreator: DP Release", "inherits": "qtcreator-dp", "environment": { "DP_CONFIG": "release" }, "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } }
+  ],
+
+  "buildPresets": [
+    { "name": "dp-deb",           "configurePreset": "dp-deb",           "jobs": 0 },
+    { "name": "dp-rel",           "configurePreset": "dp-rel",           "jobs": 0 },
+    { "name": "qtcreator-dp-deb", "configurePreset": "qtcreator-dp-deb", "jobs": 0 },
+    { "name": "qtcreator-dp-rel", "configurePreset": "qtcreator-dp-rel", "jobs": 0 }
+  ],
+
+  "testPresets": [
+    {
+      "name": "dp-deb", "configurePreset": "dp-deb",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "jobs": 0 }
+    },
+    {
+      "name": "dp-rel", "configurePreset": "dp-rel",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "jobs": 0 }
+    },
+    {
+      "name": "dp-deb-unit", "inherits": "dp-deb",
+      "filter": { "include": { "label": "unit" } }
+    }
+  ],
+
+  "workflowPresets": [
+    {
+      "name": "dp-deb",
+      "displayName": "Configure, build and test: DP Debug",
+      "steps": [
+        { "type": "configure", "name": "dp-deb" },
+        { "type": "build",     "name": "dp-deb" },
+        { "type": "test",      "name": "dp-deb" }
+      ]
+    },
+    {
+      "name": "dp-rel",
+      "displayName": "Configure, build and test: DP Release",
+      "steps": [
+        { "type": "configure", "name": "dp-rel" },
+        { "type": "build",     "name": "dp-rel" },
+        { "type": "test",      "name": "dp-rel" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,115 @@
+[build-system]
+# PEP 639 license metadata needs a recent scikit-build-core.
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "faster-astap"
+# One version for the whole repository (GitHub releases and PyPI releases)
+# The .devN suffix is for proving the release pipeline out on TestPyPI.
+version = "0.5.0"
+description = "Fast astrometric plate solving: ASTAP's algorithm in C++, and an optimized whole-sky index solver"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MPL-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Vlad Pop" }]
+keywords = ["astronomy", "astrometry", "plate solving", "astap", "wcs", "fits"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+# Pillow and rawpy are the decoders for the formats the PNG, JPEG, TIFF and the raw camera files.
+dependencies = ["numpy>=1.21", "pillow>=9", "rawpy>=0.17"]
+
+[project.optional-dependencies]
+wcs = ["astropy>=5.0"]
+test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/Pop-Vlad/faster-astap"
+Source = "https://github.com/Pop-Vlad/faster-astap"
+Issues = "https://github.com/Pop-Vlad/faster-astap/issues"
+
+[tool.scikit-build]
+# The package is laid out under python/
+# The C++ sources at the top of the repository stay where the CMake build expects them.
+wheel.packages = ["python/faster_astap"]
+cmake.version = ">=3.15"
+build-dir = "build/{wheel_tag}"
+# Only the extension. Left to itself CMake would also build the two command line
+# solvers, the benchmarks and the test binaries, none of which go in the wheel.
+build.targets = ["_core"]
+# The corpus is hundreds of megabytes of survey cutouts that anyone can refetch
+# with tools/fetch_skyview_corpus.py, and the rest is build output. Everything
+# CMake needs to configure - CMakeLists.txt, include/, src/, tests/, python/ -
+# stays in, because an sdist that cannot build is not a source distribution.
+sdist.exclude = [
+    "corpus",
+    "cmake-build-*",
+    "build",
+    "dist",
+    "wheelhouse",
+    "nina-plugin/plugin",
+]
+
+[tool.scikit-build.cmake.define]
+ASTAP_PYTHON = "ON"
+# The two command line solvers and the N.I.N.A. front end are not part of the
+# wheel, and building them would only slow it down.
+ASTAP_NINA_INTEGRATION = "OFF"
+# That option exists so the shipped .exe files carry their own runtime. An
+# extension module must not: it is loaded into a process that already has one,
+# and a second static copy of the C runtime beside python3xx.dll means two heaps
+# and two sets of file descriptors in the same process. The interpreter is what
+# decides the runtime here, so the wheel takes it dynamically like everything
+# else in the process.
+ASTAP_STATIC_RUNTIME = "OFF"
+# zlib is on because the wheel uses it.
+ASTAP_ZLIB = "ON"
+# The other four are off because PNG, JPEG, TIFF and the raw formats are dispatched to Pillow and rawpy.
+ASTAP_PNG = "OFF"
+ASTAP_JPEG = "OFF"
+ASTAP_TIFF = "OFF"
+ASTAP_LIBRAW = "OFF"
+
+[tool.cibuildwheel]
+# Here rather than as CIBW_* environment variables in the workflow, so that the
+# build a maintainer runs locally with `cibuildwheel` is the one CI runs, and so
+# an upgrade of the action cannot silently change what is built.
+#
+# cp*t-* is no longer supported because rawpy became a dependency and publishes no wheel for it.
+skip = ["pp*", "*-win32", "*_i686", "*-musllinux_*", "cp*t-*"]
+
+# A published wheel must never quietly lose a decoder it was configured to have.
+environment = { CMAKE_ARGS = "-DASTAP_REQUIRE_LIBS=ON" }
+
+# Proves the wheel imports on a machine with none of the build tools on it. It
+# cannot prove solving: that needs a star database, which is gigabytes and not
+# ours to ship, so most of the suite reports itself skipped here.
+test-requires = "pytest"
+test-command = "python -c \"import faster_astap as fa; print(fa.__version__, fa.supported_image_extensions())\" && python -m pytest {project}/python/tests -q"
+
+[tool.cibuildwheel.macos]
+# MacOS arm64 only. The x86_64 wheel is no longer supported because rawpy became a dependency.
+archs = ["arm64"]
+
+[tool.cibuildwheel.windows]
+#  Windows wheels require isntalling zlib before the build.
+before-all = "vcpkg install zlib:x64-windows-static-md"
+environment = { CMAKE_ARGS = "-DASTAP_REQUIRE_LIBS=ON -DVCPKG_TARGET_TRIPLET=x64-windows-static-md -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" }
+
+[tool.cibuildwheel.linux]
+# The manylinux images ship zlib-devel already. Asked for anyway.
+before-all = "yum install -y zlib-devel"
+
+# GCC 12: comfortable with C++17, and new enough for std::filesystem without the
+# separate library the older images want.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
