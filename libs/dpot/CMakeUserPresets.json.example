@@ -1,0 +1,33 @@
+{
+  "version": 10,
+  "vendor": {
+    "org.degoras.readme": [
+      "Per-developer presets. Copy this file to CMakeUserPresets.json (git-ignored) and edit the copy.",
+      "The local-* presets inherit the public ones and only move the build root. $env{} in binaryDir reads",
+      "the preset environment first, so overriding DEVSYSTEM_BUILDTREES here is enough.",
+      "Keep the build root SHORT: GCC and ar (ucrt64) fail when an object path passes 260 characters."
+    ]
+  },
+  "configurePresets": [
+    {
+      "name": "local-deb",
+      "displayName": "Local Debug (custom build root)",
+      "inherits": "dp-deb",
+      "environment": { "DEVSYSTEM_BUILDTREES": "D:/bt" }
+    },
+    {
+      "name": "local-rel",
+      "displayName": "Local Release (custom build root)",
+      "inherits": "dp-rel",
+      "environment": { "DEVSYSTEM_BUILDTREES": "D:/bt" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "local-deb", "configurePreset": "local-deb", "jobs": 0 },
+    { "name": "local-rel", "configurePreset": "local-rel", "jobs": 0 }
+  ],
+  "testPresets": [
+    { "name": "local-deb", "configurePreset": "local-deb", "output": { "outputOnFailure": true } },
+    { "name": "local-rel", "configurePreset": "local-rel", "output": { "outputOnFailure": true } }
+  ]
+}

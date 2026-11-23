@@ -1,0 +1,210 @@
+I/175     Fifth Fundamental Catalogue (FK5) - Extension     (Fricke+ 1991)
+================================================================================
+Fifth Fundamental Catalogue (FK5) Part II.  The FK5 Extension
+    Fricke W., Schwan H., CorbinT. (in collaboration with Bastian U., 
+    Bien R., Cole C., Jackson R., Jaehrling R., Jahreiss H., Lederle T.,
+    Roeser, S.)
+   <Veroeff. Astron. Rechen-Institut Heidelb. No. 33, (1991)>
+   =1991VeARI..33....1F
+================================================================================
+ADC_Keywords: Positional data - 140; Proper motions - 665;
+
+Description:
+   The FK5 Extension provides improved mean positions and proper
+   motions for the 3117 new fundamental stars. The machine version of
+   the catalog contains the positions and proper motions of the
+   Extension stars for the epochs and equinoxes J2000.0 and B1950.0,
+   the mean epochs of individual observed right ascensions and
+   declinations used to determine the final positions, the mean errors
+   of the final positions and proper motions for the reported epochs,
+   and ancillary data such as magnitudes, spectral types, parallaxes,
+   and radial velocities. Cross identifications to the numbering
+   systems of the AGK3R, SRS, HD, DM, and GC catalogs are also
+   included.
+
+Introduction:
+   The Fifth Fundamental Catalogue (FK5) Part II (which may be
+   referred to by the alternate name FK5 Extension) provides mean
+   positions and proper motions at equinox and epoch J2000.0 for 3117
+   new fundamental stars. The purpose of the FK5, Part II, is mainly
+   to extend the fundamental system defined by the FK5, Part I (the
+   so-called Basic FK5; Fricke et al. 1988) to about magnitude 9.5.
+   The positions and proper motions given in the FK5 Extension are in
+   accordance with the IAU (1976) system of astronomical constants;
+   this means that the proper motions are based on the new values for
+   the precessional quantities, the terms of elliptic aberration are
+   eliminated from the mean positions, the correction for the error in
+   the FK4 equinox and its fictitious motion are applied, and the
+   systematic corrections FK5-FK4, as given in the Basic FK5 (page
+   86), have been taken into account. More than 200 catalogs providing
+   star positions obtained from throughout the world have been used in
+   the compilation of the FK5 Extension.
+
+   The source reference should be consulted, along with the FK5 Basic
+   catalog (Fricke et al. 1988) for more detailed information
+   regarding the motivation for construction of the FK5, the
+   determination of its equator and equinox, the expressions for
+   general precession, a discussion of the FK5 system, systematic
+   differences between the FK4 and FK5, the transformation of
+   observational catalogs to the FK5 system and to the reference
+   system J2000.0, and more thorough descriptions of the data
+   contained in the FK5 catalog. In fact, the source reference should
+   be consulted by all users before utilizing the FK5 data for
+   astrometric applications.
+
+   The trigonometric parallax and radial velocity fields are blank
+   when data are missing, and because parallax and radial velocity can
+   validly be zero, the fields should be checked for blanks before the
+   data are used. The user should note that the file is ordered by FK5
+   number, which means that the stars are arranged neither by right
+   ascension nor by declination.
+
+See also:
+   I/149 : Part I: Basic Fundamental Stars
+
+File Summary:
+--------------------------------------------------------------------------------
+  FileName      Lrecl    Records    Explanation
+--------------------------------------------------------------------------------
+ReadMe            80         .       This file
+fk5e.dat         190       3117      FK5 Extension - Part II
+--------------------------------------------------------------------------------
+
+Byte-by-byte Description of file: fk5e.dat
+--------------------------------------------------------------------------------
+ Bytes  Format  Units       Label      Explanations
+--------------------------------------------------------------------------------
+  1-4     I4    ---        FK5      *FK5 Extension number
+  6-7     I2    h          RAh      *Right ascension J2000.0 (hours)
+                                          Equinox=J2000, Epoch=J2000
+  9-10    I2    min        RAm      *Right ascension J2000.0 (minutes)
+ 12-17   F6.3   s          RAs      *Right ascension J2000.0 (seconds)
+ 19-25   F7.3   s/ha       pmRA     *Centennial proper motion J2000.0
+ 27-27    A1    ---        DE-      *Declination, J2000.0 (sign)
+ 28-29    I2    deg        DEd      *Declination, J2000.0 (degrees)
+                                          Equinox=J2000, Epoch=J2000
+ 31-32    I2    arcmin     DEm      *Declination  J2000.0 (minutes)
+ 34-38   F5.2   arcsec     DEs      *Declination  J2000.0 (seconds)
+ 40-46   F7.2   arcsec/ha  pmDE     *Centennial proper motion J2000.0
+ 48-49    I2    h          RA1950h   Right ascension B1950.0 (hours)
+                                          in new system,
+                                          Equinox=B1950, Epoch=B1950
+ 51-52    I2    min        RA1950m   Right ascension B1950.0 (minutes)
+ 54-59   F6.3   s          RA1950s   Right ascension B1950.0 (seconds)
+ 61-67   F7.3   s/ha       pmRA1950  Centennial proper motion B1950.0
+ 69-69    A1    ---        DE1950-   Declination B1950.0 (sign)
+ 70-71    I2    deg        DE1950d   Declination B1950.0 (degrees)
+                                          in new system,
+                                          Equinox=B1950, Epoch=B1950
+ 73-74    I2    arcmin     DE1950m   Declination B1950.0 (minutes)
+ 76-80   F5.2   arcsec     DE1950s   Declination B1950.0 (seconds)
+ 82-88   F7.2   arcsec/ha  pmDE1950  Centennial proper motion B1950.0
+ 90-94   F5.2   a          EpRA     *Epoch (RA)
+ 95-99   F5.1   ms         e_RAs    *Mean error in RA
+100-105  F6.1   ms/ha      e_pmRA   *Mean error in centennial PM
+107-111  F5.2   a          EpDE     *Epoch (Dec)
+113-116  F4.1   10mas      e_DEs    *Mean error in Dec
+118-122  F5.1   10mas/ha   e_pmDE   *Mean error in centennial PM
+124-128  F5.2   mag         Vmag    *V magnitude
+ 129      A1    ---         n_Vmag  *Magnitude flag
+131-137   A7    ---         Sp       Spectral type(s)
+139-145  F7.4   arcsec      plx     ?Parallax
+147-153  F7.2   km/s        RV      ?Radial velocity
+155-159   A5    ---         AGK3R   *AGK3R (catalog <I/161>) number
+161-165   A5    ---         SRS      SRS (catalog <I/138>) number
+167-172   A6    ---         HD       HD (catalog <III/135>) number
+174-183   A10   ---         DM      *DM identification
+186-190   A5    ---         GC       GC (catalog <I/113>) number
+--------------------------------------------------------------------------------
+Note on FK5:
+   These numbers begin at 2000 (the first is 2003) to distinguish
+   them from the numbers in the Basic FK5.
+Note on RAh, RAm, RAs, DE-, DEd, DEm, DEs:
+   The terms of elliptic aberration have been eliminated from the mean
+   positions. The B1950.0 data have been computed from the J2000.0
+   data using a procedure described in the source reference based on
+   the IAU (1976) system of astronomical constants (see also Lieske
+   1979).
+Note on pmRA and pmDE:
+   Centennial values for J2000.0 and B1950.0, referred to one Julian
+   century.
+Note on EpRA and EpDE:
+   Mean epoch (-1900.0) of the individual observed right ascensions
+   and declinations.
+Note on e_RAs, e_DEs, e_pmRA, e_pmDE:
+   These mean errors do not include those of the FK5 system and of the
+   equinox and equator.
+Note on Vmag:
+   For physical double stars, the magnitudes of the brighter
+   components are given (both are given in the published catalog).
+Note on n_Vmag:
+   'V' indicates that a range of magnitudes is given in the published
+   catalog.
+   'v' indicates variability (amplitude exceeds 0.3 magnitude).
+Note on AGK3R:
+   Only three stars (1367, 1553, 1598) in the Basic FK5 have this
+   number.
+Note on DM:
+   BD = Bonner Durchmusterung (Argelander 1859-62, Kuestner 1903 <I/122>)
+   SD = Southern Durchmusterung (Schoenfeld 1886 <I/119>)
+   CD = Cordoba Durchmusterung (Thome 1892- 1932 <I/114>)
+   CP = Cape Photographic Durchmusterung (Gill and Kapteyn 1895-1900 <I/108>)
+--------------------------------------------------------------------------------
+
+History:
+   The machine-readable Fifth Fundamental Catalogue (FK5) Part II was
+   received on magnetic tape from Dr. H. Schwan of the Astronomisches
+   Rechen-Institut, Heidelberg on 19 August 1991. The logical record
+   length of the catalog, as received, was 220 bytes. The following
+   format changes were made by Wayne H. Warren Jr., (with Dr. Schwan's
+   concurrence) in order to make the data easier to interpret and to
+   conserve storage:
+   1. The DM identifiers, which were single-digit numerical codes,
+   were changed to "BD", "CD", and "CP".
+   2. Plus signs were added to the trigonometric-parallax data, even
+   though no negative parallaxes are included in the catalog, to
+   indicate that negative parallaxes are possible.
+   3. Multiple blanks between data fields were removed, as were blanks
+   beyond the end of each record, to decrease the logical record
+   length from 220 bytes to 190 bytes.
+   4. Byte 129 (the variability flag) had only upper case "V" flags as
+   received. These were left for cases where magnitude ranges are
+   given in the published catalog, but were changed to lower case when
+   a lower case "v" is reported in the published edition.
+
+Acknowledgements:
+   Dr. H. Schwan and his colleagues at the Astronomisches
+   Rechen-Institut generously reviewed a draft copy of the original
+   documentation prior to its final release for distribution with
+   machine-readable copies of the catalog, as did Dr. T. E. Corbin of
+   the U. S. Naval Observatory. Dr. Warren prepared the original
+   document which has been reformatted here in the new standard form.
+
+References:
+   Corbin, T. E. 1978, in IAU Colloquium 48, Modern Astrometry, ed. F.
+      V. Frochazka and R. H. Tucker (Vienna, University Obs.), p. 505
+   Fricke, W., and Kopff, A. 1963, Fourth Fundamental Katalog (FK4),
+      Veroeff. Astron. Rechen-Institut Heidelb. No. 10. (Catalogue <I/143>)
+   Fricke, W., Schwan, H., and Corbin, T. (in collaboration with
+      Bastian, U., Bien, R., Cole, C., Jackson, R., Jaehrling, R.,
+      Jahreiss, H., Lederle, T., and Roeser, S.) 1991, Fifth
+      Fundamental Catalogue FK5), Part II. The FK5 Extension, New
+      Fundamental Stars, Veroeff. Astron. Rechen-Institut Heidelburg
+      No. 33
+   Fricke, W., Schwan, H., and Lederle, T. (in collaboration with
+      Bastian, U., Bien, R., Burkhardt, G., du Mont, B., Hering, R.,
+      Jaehrling, R., Jahreiss, H., Roeser, S., Schwerdtfeger, H. M.,
+      and Walter, H. G.) 1988, Fifth Fundamental Catalogue (FK5), Part
+      I. The Basic Fundamental Stars, Veroeff. Astron. Rechen-Institut
+      Heidelburg No. 32, catalog <I/149>
+   Lieske, J. H. 1979, A&A, 73, 282
+   Scott, F. P., and Smith, C. A., Jr. 1971, Comparison of the SAO and
+      AGK3R Star Catalogues, in Conference on Photographic Astrometric
+      Techniques, ed. H. K. Eichhorn, NASA CR-1825, catalog <I/161>
+   Smith, C. A., Corbin, T. E., Hughes, J. A., Jackson, E. S.,
+      Krutskaya, E. V., Polozhentsev, A. D., Polozhentsev, D. D.,
+      Yagudin, L. I., and Zverev, M. S. 1990, in IAU Symposium No.
+      141, Inertial Coordinate System on the Sky, ed. J. H. Lieske and
+      V. K. Abalakin (Dordrecht, Reidel), p. 457
+================================================================================
+(End)            Nancy G. Roman   [NSSDC/ADC]                        08-Dec-1994

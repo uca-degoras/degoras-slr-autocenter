@@ -1,0 +1,36 @@
+diff --git a/src/index_solver.cpp b/src/index_solver.cpp
+index f00039f..06b2575 100644
+--- a/src/index_solver.cpp
++++ b/src/index_solver.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdint>
++#include <cstdlib>
+ #include <unordered_map>
+ #include <vector>
+ 
+diff --git a/src/quads.cpp b/src/quads.cpp
+index aa5b101..65d1aa1 100644
+--- a/src/quads.cpp
++++ b/src/quads.cpp
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <cstdint>
++#include <cstdlib>
+ #include <vector>
+ 
+ #include "astap/astro_math.h"
+diff --git a/tests/quad_index_bench.cpp b/tests/quad_index_bench.cpp
+index fbe9ffa..5b5b784 100644
+--- a/tests/quad_index_bench.cpp
++++ b/tests/quad_index_bench.cpp
+@@ -7,6 +7,7 @@
+ #include <chrono>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ #include <map>
+ #include <string>
+ #include <vector>
