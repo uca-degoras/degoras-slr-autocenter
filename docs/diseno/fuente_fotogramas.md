@@ -1,9 +1,9 @@
 # Contrato de la interfaz de fuente de fotogramas (`frame_source`)
 
-**Estado:** borrador para revisión · **Autor del diseño:** Juan (equipo de imagen y apuntado) · **Revisores:** Javi y Ramón
+**Estado:** borrador para revisión, actualizado con la librería `dpot` (2026-11-23) · **Autor del diseño:** Juan (equipo de imagen y apuntado) · **Revisores:** Javi y Ramón
 **Issue:** «Contrato de la interfaz de fuente de fotogramas» (`docs/plan-issues.md` §1), milestone *Fase 1 – Contratos*.
 **Requisitos que cubre:** `docs/contexto_proyecto.md` §5 (Entrada: la arquitectura debe permitir DegorasASI) y §8.1.
-**Redacción:** el borrador lo ha redactado la IA a partir de las decisiones de Juan. Es el autor quien revisa y decide.
+**Revisión con `dpot` (2026-11-23):** la librería del ROA ya está en `libs/dpot/` (PR #6) y `docs/contexto_proyecto.md` §11 recoge sus hallazgos. Esta revisión adopta su `Frame`, `io::loadFrame` e `io::captureTime`, y corrige tres supuestos del borrador anterior: el `.txt` es **por fotograma** (no por serie), hay **hora por fotograma** (`frame_times.csv`) y el nombre del fichero **trunca** las décimas de minuto. 
 
 ## Cómo leer este documento
 
@@ -22,10 +22,9 @@ Todo el pseudocódigo es C++20 sin implementación y no se ha compilado. Los nom
 
 **Responsabilidades de la fuente**
 
-1. Entregar el fotograma **en bruto**, tal como lo capturó la cámara, con su índice, su hora (estimada o medida) y su calidad.
-2. Describir la serie (`SeriesInfo`): cámara, tamaño, formato de píxel, ajustes de captura, volteo, origen del recorte.
-3. Informar de la **fase del patrón Bayer** ya corregida por el origen del recorte **[Decidido]**.
-4. Comunicar el fin de la fuente, los fotogramas ilegibles y los fallos **sin lanzar excepciones**.
+1. Describir la serie (`SeriesInfo`): solo lo que es **constante** en toda la serie (cámara, tamaño, recorte, volteo, formato de píxel, patrón del sensor) **[Decidido]**. Los ajustes de adquisición que cambian de un fotograma a otro (ganancia, exposición, temperatura, `black_level`) viajan en cada `Frame` **[Decidido]**.
+2. Informar de la **fase del patrón Bayer** ya corregida por el origen del recorte **[Decidido]**.
+3. Comunicar el fin de la fuente, los fotogramas ilegibles y los fallos **sin lanzar excepciones**.
 
 **Lo que la fuente NO hace**
 
@@ -35,7 +34,7 @@ Todo el pseudocódigo es C++20 sin implementación y no se ha compilado. Los nom
 - No controla la cámara (exposición, ganancia): solo lee **[Decidido]**; a confirmar con el ROA (pregunta 7).
 - No gestiona la señal de montura en tránsito: es otro módulo (`mount_signal`, §5).
 
-**Por qué no depende de Qt.** `libs/frame_source` solo usa la biblioteca estándar y OpenCV; Qt queda en `apps/gui` (`CLAUDE.md`, restricciones técnicas). Así la CLI y los tests usan la misma fuente que la GUI, y el código es portable a Linux.
+**Por qué no depende de Qt.** `libs/frame_source` solo usa la biblioteca estándar, OpenCV y la librería `dpot` del ROA (`libs/dpot`, capas `common` e `io`, sin Qt); Qt queda en `apps/gui`. Así la CLI y los tests usan la misma fuente que la GUI, y el código es portable a Linux.
 
 ---
 
@@ -51,14 +50,18 @@ enum class FlipMode { None, Horizontal, Vertical, Both };   // "Flip = Horizon" 
 
 enum class TimeQuality {
     Measured,    // hora tomada de la cámara/driver por fotograma (futuro DegorasASI)
-    Estimated,   // calculada a partir de la serie (inicio, periodo...)
+    Estimated,   // calculada: hora de escritura del fichero, inicio de sesión + periodo, nombre + periodo...
     Unknown      // no hay hora utilizable; solo hay índice
 };
+
+// De dónde sale la hora estimada (§2.3). Informativo [Decidido]; el núcleo se guía por quality y uncertainty.
+enum class TimeBasis { SeriesStartEnd, FramesCsv, SessionFolder, FileName, None };
 
 struct FrameTime {
     std::optional<std::chrono::system_clock::time_point> utc;   // vacío si quality == Unknown
     std::chrono::nanoseconds uncertainty{};                     // semiancho: la hora real está en utc ± uncertainty
     TimeQuality quality = TimeQuality::Unknown;
+    TimeBasis basis = TimeBasis::None;
     std::optional<std::chrono::nanoseconds> since_series_start; // vacío si no hay periodo
 };
 ```
@@ -66,29 +69,58 @@ struct FrameTime {
 ### 2.2 `Frame`
 
 ```cpp
+// Ajustes de adquisición DE ESTE fotograma, leídos de su `<nombre>.PNG.txt` [Decidido]. Cambian dentro de una serie.
+struct AcquisitionSettings {
+    double exposure_s;                        // segundos (el .txt trae milisegundos)
+    double gain;                              // unidades de ASICap (no son dB)
+    std::optional<double> sensor_temp_c;      // °C
+    std::optional<int> black_level;           // de "Brightness"; unidades originales del sensor (raw); solo informativo
+};
+
 struct Frame {
     std::uint64_t index;                      // PNG: NNNN del fichero − primer NNNN de la serie (0, 1, 2...); un hueco en NNNN es un hueco en index
-    cv::Mat image;                            // 1 canal, CV_8UC1 (RAW8 ahora) o CV_16UC1 (RAW16 después); en bruto
+    dpot::common::Frame image;                // 1 canal, uint16; datos de 8 bits ×257; image.raw(x,y) da el valor original [Decidido]
     PixelFormat pixel_format;                 // Mono, o fase Bayer en (0,0) de `image`, ya corregida por el recorte
-    int bits_per_sample;                      // bits válidos por muestra (8 ahora)
-    std::uint32_t white_level;                // valor de saturación en unidades de `image` (cuentas digitales)
+    int bits_per_sample;                      // bits válidos por muestra de la cámara (8 ahora)
+    std::uint32_t white_level;                // saturación en unidades ORIGINALES del sensor (raw), no ×257 [Decidido]
+    AcquisitionSettings acquisition;          // ajustes de este fotograma [Decidido]
     FrameTime time;
-    std::shared_ptr<const SeriesInfo> series; // metadatos compartidos de la serie
+    std::shared_ptr<const SeriesInfo> series; // metadatos constantes de la serie, compartidos
+
+    cv::Mat view() const noexcept;            // vista sobre image.px, sin copia, solo lectura [Decidido]; detalles en "Vista cv::Mat"
 };
 ```
 
 | Campo | Tipo | Unidad / significado | Etiqueta |
 |---|---|---|---|
 | `index` | `uint64_t` | Con secuencias PNG: `NNNN` del fichero menos el primer `NNNN` de la serie, desde 0 y monótono; los huecos de numeración se ven como huecos de `index`. En otras fuentes, posición en la serie. Los fotogramas perdidos conservan su índice. | [Decidido] (PNG); [Decidido] (otras fuentes) |
-| `image` | `cv::Mat` | Cuentas digitales (ADU). 1 canal. Dimensiones = `series->width × height`. Filas crecientes hacia abajo (la fila crece hacia −El, §2). | [Decidido] (tipo en bruto) |
+| `image` | `dpot::common::Frame` | 1 canal, `uint16`, filas de arriba abajo (la fila crece hacia −El, §2), píxel (0,0) = centro del píxel superior izquierdo (convención de `dpot`). Datos de 8 bits ×257 (255 → 65535); `bitDepth` guarda 8 o 16; `raw(x,y)` devuelve el original. Dimensiones = `series->width × height`. | [Decidido] |
 | `pixel_format` | enum | Fase del patrón en el píxel (0,0) entregado. | [Decidido] (fase corregida) |
-| `bits_per_sample` | `int` | Bits válidos; 8 con RAW8. | [Decidido] |
-| `white_level` | `uint32_t` | Valor a partir del cual un píxel está saturado. **No se asume `2^bits − 1`**. Con RAW8, 255. | [Decidido] |
+| `bits_per_sample` | `int` | Bits válidos de la cámara; 8 con RAW8. Siempre ≤ `image.bitDepth` (8 o 16). | [Decidido] (campo); relación con `bitDepth`: [DECIDIDO] |
+| `white_level` | `uint32_t` | Valor a partir del cual un píxel está saturado, en **unidades originales del sensor**. **No se asume `2^bits − 1`**. Con RAW8, 255. | [Decidido] |
+| `acquisition` | `AcquisitionSettings` | Ganancia, exposición, temperatura y `black_level` **de este fotograma**. | [Decidido] |
 | `time` | `FrameTime` | Ver §2.3. | [Decidido] (calidad e incertidumbre viajan con el dato) |
-| `series` | `shared_ptr<const SeriesInfo>` | Un solo objeto por serie, compartido. | [Decidido] (D4) |
+| `series` | `shared_ptr<const SeriesInfo>` | Un solo objeto por serie, compartido; solo lo constante (§3). | [Decidido] (D4) |
 
-**Profundidad de bits y `white_level` [Decidido].** La imagen se entrega en su tipo de almacenamiento y la fuente informa de `bits_per_sample` y de `white_level`. El núcleo usa `white_level` para detectar saturación (§2).
-SUPUESTO: con RAW16 de ZWO, los datos pueden venir alineados a la izquierda. Si es así, `white_level` no sería `2^bits − 1` y los valores serían múltiplos de `2^(16 − bits)`. No hay material RAW16 todavía, así que se revisa cuando lo haya.
+**Imagen de `dpot` y escala ×257 [Decidido].** El `Frame` del núcleo contiene un `dpot::common::Frame` para pasar la imagen directamente a los algoritmos de `dpot` (detección, medida, plate solving) sin convertirla. `white_level` y `black_level` se expresan en unidades originales del sensor (*raw*); la tabla da su traducción a la escala de `image.px`. Con `k = 257` si `image.bitDepth == 8` y `k = 1` si es 16:
+
+| Magnitud | Unidades originales (raw) | En `image.px` (escala de `dpot`) |
+|---|---|---|
+| Muestra de 8 bits | `v` (0–255) | `257 · v` (0–65535) |
+| Muestra de 16 bits | `v` (0–65535) | `v` |
+| `white_level` | `w` | `w · k` (RAW8: 255 → 65535) |
+| `black_level` | `b` | `b · k` |
+
+Un píxel está saturado si `image.at(x,y) ≥ white_level · k`, que equivale a `image.raw(x,y) ≥ white_level`. La conversión de 8 bits es exacta (257 · 255 = 65535 y `raw()` divide entre 257 sin pérdida).
+
+**[DECIDIDO] Reglas para no confundir las dos escalas.**
+- La fuente ofrece dos funciones libres, `to_raw(frame, v)` y `to_scaled(frame, raw)`, para que ningún módulo escriba el 257 a mano.
+- `white_level`, `black_level`, `gain` y `exposure_s` están siempre en unidades originales. Cualquier umbral que un algoritmo propio compare con `image.px` (por ejemplo, el umbral de saturación o un nivel de ruido en ADU) se multiplica por `k`.
+- Una función de OpenCV que suponga 8 bits (por ejemplo, un `cv::threshold` con máximo 255) no sirve tal cual sobre `view()`: los valores llegan escalados.
+
+**Vista `cv::Mat` sin copia [Decidido].** Para los algoritmos propios con OpenCV, `view()` devuelve un `cv::Mat` de tipo `CV_16UC1` sobre el mismo buffer que `image.px` (`step = 2 · width`, sin relleno), sin copiar. **[DECIDIDO]**: (1) es de solo lectura, porque el `Frame` es `const` y está compartido y escribir en la vista lo cambiaría para todos; (2) vale mientras viva el `Frame`: quien necesite conservarla mantiene el `shared_ptr<const Frame>` o hace `clone()`; (3) un test comprueba que `view().data == image.px.data()`.
+
+**Coste en memoria [DECIDIDO].** Un fotograma RAW8 de la 2600MM (26 MP) ocupa 52 MB como `uint16` frente a 26 MB como `CV_8U`. Con la regla de la GUI (máximo 2 fotogramas, §5) más el que se procesa, son unos 150 MB. Es el precio de usar `dpot` sin convertir (D14, §9).
 
 **Fase Bayer corregida [Decidido].** `SeriesInfo::sensor_pattern` es el patrón en el origen del sensor. `Frame::pixel_format` es el patrón en el píxel (0,0) de la imagen recortada. Con el patrón RGGB en el sensor:
 
@@ -99,30 +131,42 @@ SUPUESTO: con RAW16 de ZWO, los datos pueden venir alineados a la izquierda. Si 
 | par | impar | `BayerGBRG` |
 | impar | impar | `BayerBGGR` |
 
-**`pixel_format` NO está validado para la ASI585MC [Decidido].** Hay dos incógnitas:
+**Fase Bayer y volteo por cámara [Decidido].** Los 300 `.txt` de la ASI585MC del paquete del ROA dicen `Raw Format = ON`, `Debayer Type = RGGB` y `Flip = None`: el PNG es el mosaico en bruto y no hay volteo que cambie la fase. Por tanto `sensor_pattern = BayerRGGB` y `pixel_format` sale de la tabla (con `StartX = StartY = 0`, `BayerRGGB`). La ASI2600MM es monocroma (`Debayer Type = NONE`): no tiene fase Bayer, y su volteo (`Flip = Horizon`) no altera nada que la fuente deba corregir. La preocupación por el volteo y la fase queda, por tanto, solo para la 2600MM y se resuelve así: la fuente no la corrige y la calibración declara el volteo esperado **por cámara**: `Horizon` (2600MM) y `None` (585MC). Si un fotograma trae otro, avisa el núcleo (§7).
 
-1. El patrón RGGB del sensor no está confirmado (§2, §9; pregunta 3).
-2. El volteo horizontal (Flip = Horizon) puede cambiar la fase. Si ASICap lo aplica **antes de guardar** la imagen, con un ancho par la fase cambia (RGGB → GRBG): al invertir cada fila, la que empezaba por «R G» pasa a empezar por «G R». Si lo aplica el sensor o el SDK de otra forma, el resultado puede ser distinto.
-
-Hasta saberlo, la fuente **no** corrige por el volteo y lo informa en `SeriesInfo::acquisition_flip`. La tabla anterior solo corrige por el origen del recorte. Se comprobará con una **prueba propia con un PNG real** (apartado 8): comparar la estadística de los 4 subplanos 2×2 en cielo de fondo; los dos verdes deben coincidir, lo que identifica su diagonal.
+**[DECIDIDO]** (a) Si algún día llega una cámara con mosaico y `Flip ≠ None`, la fase podría cambiar (con ancho par y volteo antes de guardar, RGGB → GRBG): en ese caso la fuente avisa en `warnings` y no corrige. (b) Se mantiene como verificación la comprobación con un PNG real de la 585MC (apartado 8), ya sin la incógnita del volteo. Esos PNG están en el paquete del ROA, no en el repo.
 
 ### 2.3 Marca de tiempo [Decidido: calidad e incertidumbre viajan con el dato]
 
-No hay hora por fotograma (Timestamp Frames = OFF, §3). La fuente estima la hora y lo declara en `quality`. Para la salida de la aplicación basta el tiempo relativo; la precisión importará al cruzar con el registro de posiciones de la montura (§3).
+ASICap no escribe hora dentro del PNG (`Timestamp Frames = OFF`), pero el paquete del ROA trae `images/frame_times.csv` con la hora a la que se escribió cada PNG, y `dpot::io::captureTime` la localiza **[Decidido]**. Ninguna de las horas de abajo es `Measured`: la hora tomada por la cámara solo la dará DegorasASI. Para la salida de la aplicación basta el tiempo relativo; la precisión importará al cruzar con el registro de posiciones de la montura (§3).
 
-Reglas de estimación **[Decidido]** (aplican por disponibilidad de datos en `SeriesInfo`, no por tipo de fichero):
+**Prioridad [Decidido].** La hora se resuelve **por fotograma**, con la mejor fuente disponible:
 
-1. **Si hay `start_capture`, `end_capture` y `frame_count > 1`** (caso de los AVI: solo el `.txt` del vídeo trae estas claves; el de la serie PNG no, §3.1):
-   `t_i = start_capture + i · (end_capture − start_capture) / (frame_count − 1)`.
-   Con los datos del ejemplo de §3 (226 fotogramas, 19:16:31,237 → 19:17:35,494) sale un periodo de 0,2856 s, que coincide con los ~0,286 s esperados. Calidad `Estimated`. La incertidumbre inicial es un periodo, y se refinará con un experimento (SUPUESTO: el periodo es uniforme; hay jitter por la lectura USB).
-2. **Si no hay inicio y fin, pero hay hora en el nombre del fichero y un periodo configurado**: el nombre `AAAA-MM-DD-HHMM_d-…` da la hora `t0` en décimas de minuto, es decir, con resolución de 6 s. SUPUESTO: no se sabe si el nombre **trunca** o **redondea** las décimas de minuto. Con truncado, la hora real está en `[t0, t0 + 6 s)`; con redondeo, en `[t0 − 3 s, t0 + 3 s)`. Hasta confirmarlo se cubren los dos casos: `t_i = (t0 + 1,5 s) + i · periodo` con semiancho **±4,5 s** (la unión `[t0 − 3 s, t0 + 6 s)`). Calidad `Estimated` **[Decidido]**.
-   Evidencia disponible: `1916_5` (= 19:16:30) frente a `StartCapture = 19:16:31,237` en el `.txt` real del AVI es coherente con los dos casos: 31,237 s son 5,2 décimas de minuto y tanto truncar como redondear dan 5. Discriminaría una serie con la fracción de la décima ≥ 0,5 (con `StartCapture` a 19:16:34 s, truncar da 5 y redondear da 6). Una vez confirmado, la estimación se estrecha a `t0 + 3 s ± 3 s` (truncado) o a `t0 ± 3 s` (redondeo) (§10).
-   **El periodo debe configurarse; no hay valor por defecto [Decidido].** El `.txt` de las series PNG no lo trae, y ni siquiera se usa el ~0,286 s del AVI de ejemplo: depende de la exposición, del recorte y del USB. Sin periodo configurado se aplica la regla 3, y `Realtime` sobre una serie PNG falla en `open()` (§4).
-3. **Si no hay periodo**: calidad `Unknown`, `utc` vacío, solo `index`.
+| Prioridad | Fuente (`TimeSource` de `dpot`) | `utc` | `uncertainty` (semiancho) |
+|---|---|---|---|
+| 1 | `frame_times.csv` (`FRAME_TIMES`) | hora de escritura del PNG, al milisegundo, **menos 0,65 s** (la exposición es anterior a la escritura) | 0,45 s |
+| 2 | Carpeta de sesión `AAAA-MM-DD_HH_MM_SSZ` (`SESSION`), más índice × periodo | `S + 0,5 s + i · periodo` | 0,5 s |
+| 3 | Nombre del fichero (`FILE_NAME`), más índice × periodo | `t0 + 3 s + i · periodo`, con `t0 = HHMM + d · 6 s` | 3 s |
+| 4 | Nada | vacío | — (`Unknown`) |
 
-**Qué precisión hace falta.** Para la salida solo importa `cos(El)` (para pasar de dAz·cos(El) a dAz, §2): unos segundos de error en la hora cambian la elevación una fracción de grado como máximo y `cos(El)` en una parte entre miles, así que son despreciables. Lo que **no sirve** es usar esta hora para **predecir la posición de la estrella en la imagen** (calcularla con el catálogo, la hora y las coordenadas de la estación, §3). La rotación sidérea es de hasta 15″/s: ±4,5 s son unos 68″, que a 0,0758″/px son del orden de 900 px en la ASI585MC. Para eso haría falta `Measured` o el registro de la montura.
+Las tres primeras filas son `Estimated` **[Decidido]**, nunca `Measured`. Fuera de esta tabla queda el caso del AVI (abajo), que se aplica por disponibilidad de datos.
 
-**Zona horaria [Decidido].** La hora es UTC (`std::chrono::system_clock`). Si el `.txt` indica `TimeZone ≠ 0`, se **aplica el desfase** y se añade un aviso en `OpenResult::warnings`; `open()` no falla. Con los `.txt` reales, `TimeZone = 0` **[Decidido]**, pero la clave solo aparece en el `.txt` del AVI: las series PNG no la traen y se asume UTC **[Decidido]**. SUPUESTO: no se ha visto `TimeZone ≠ 0`, así que no se sabe el signo del desfase ni a qué horas afecta. Decidido: aplicarlo solo a las horas sin designador explícito de UTC (en el ejemplo de §3, `StartCapture` lleva `Z`, luego ya es UTC), para no aplicarlo dos veces. Se verifica cuando aparezca un caso real.
+1. **`frame_times.csv` [Decidido].** La hora del CSV es la de **escritura** del PNG según el reloj del PC de captura, y su exactitud absoluta no está comprobada (pregunta 9, §10). La exposición es siempre **anterior** a la escritura, así que el intervalo **no es simétrico** alrededor del CSV. El retardo medido es de 0,2 a 1,1 s: el primer PNG de cada sesión se escribe entre 0,2 y 1,1 s después del inicio de sesión de la carpeta (§11 del contexto). Por tanto `utc = CSV − 0,65 s ± 0,45 s`, es decir, el intervalo `[CSV − 1,1 s, CSV − 0,2 s]` **[Decidido]**. SUPUESTO: ese rango se midió solo en el primer fotograma de cada sesión y aquí se extiende al resto. El periodo medido con el CSV (RASA 0,285 s, entre 0,259 y 0,297; SFEL 0,240 s, entre 0,224 y 0,264) varía menos que ese semiancho. El CSV no lo genera ASICap: lo hizo el ROA a partir de las fechas de los ficheros.
+2. **Carpeta de sesión [Decidido el orden].** Da el inicio de la captura al segundo, `S`, en UTC, más `índice × periodo`. **[DECIDIDO]**: se aplica el mismo criterio que al CSV, que es estimar la hora de la **exposición**, no la de la escritura. SUPUESTO: la carpeta **trunca** al segundo (como el nombre trunca las décimas de minuto), así que el inicio real está en `[S, S + 1 s)`, y la primera exposición empieza con la captura. De ahí `utc = S + 0,5 s + i · periodo ± 0,5 s`. El retardo de 0,2–1,1 s no entra aquí porque separa el inicio de la captura de la escritura, no de la exposición. Para el fotograma 0, esta estimación y la del CSV deben solaparse. Si la carpeta redondeara en lugar de truncar, el inicio estaría en `[S − 0,5 s, S + 0,5 s)` y la estimación quedaría 0,5 s desplazada, dentro de su semiancho. El error del periodo se acumula con el índice; el periodo se configura (§6.1) y no hay valor por defecto.
+3. **Nombre del fichero [Decidido].** `AAAA-MM-DD-HHMM_d-…` da la hora en décimas de minuto. El nombre **trunca** las décimas: confirmado en 6 de las 8 sesiones del paquete, donde la décima del nombre y el segundo de la carpeta de sesión dan resultados distintos según se trunque o se redondee, y las 6 coinciden con truncar (décima = suelo de segundo/6); en las otras 2 no discriminan. Se retira el SUPUESTO del borrador anterior. La hora real está en `[t0, t0 + 6 s)`, es decir, `t0 + 3 s ± 3 s`, más `índice × periodo` porque el nombre es el mismo en toda la serie. `io::captureTime` descarta la décima y solo usa HHMM, así que la décima la lee `frame_source` del nombre (§6.1).
+4. **Sin ninguna de las anteriores, o sin periodo en las reglas 2 y 3:** calidad `Unknown`, `utc` vacío, solo `index`. **El periodo debe configurarse; no hay valor por defecto [Decidido].** El `.txt` de las series PNG no lo trae, y el ~0,286 s del AVI de ejemplo no sirve: depende de la exposición, del recorte y del USB. `Realtime` sobre una serie PNG sin periodo falla en `open()` (§4).
+
+**Caso del AVI (sin cambios) [Decidido].** Si el `.txt` de la serie trae `start_capture`, `end_capture` y `frame_count > 1` (solo el `.txt` del vídeo lo trae; §3.1):
+`t_i = start_capture + i · (end_capture − start_capture) / (frame_count − 1)`.
+Con los datos del ejemplo (226 fotogramas, 19:16:31,237 → 19:17:35,494) sale un periodo de 0,2856 s, que coincide con los ~0,286 s esperados. Calidad `Estimated`, `basis = SeriesStartEnd`. La incertidumbre inicial es un periodo y se refinará con un experimento (SUPUESTO: el periodo es uniforme; hay jitter por la lectura USB).
+
+**[DECIDIDO] Detalles.**
+- `dpot::io::captureTime` devuelve una fecha civil (`UtcTime`) y su `TimeSource`; `frame_source` la convierte a `system_clock` (sin segundos intercalares: no hay ninguno en 2026-10) y le pone `quality`, `basis` y `uncertainty`.
+- Si el CSV existe pero no tiene fila para un fotograma, `captureTime` cae a la sesión o al nombre. Ese fotograma lleva su aviso en `ReadResult::warnings`, y `since_series_start` solo se calcula entre fotogramas con la misma `basis`.
+- `since_series_start` = `utc` del fotograma menos el del primero de la serie, cuando ambos existen con la misma fuente.
+
+**Qué precisión hace falta.** Para la salida solo importa `cos(El)` (para pasar de dAz·cos(El) a dAz, §2): unos segundos de error en la hora cambian la elevación una fracción de grado como máximo y `cos(El)` en una parte entre miles, así que son despreciables. Lo que **no sirve** es usar estas horas para **predecir la posición de la estrella en la imagen** (calcularla con el catálogo, la hora y las coordenadas de la estación, §3). La rotación sidérea es de hasta 15″/s: ±0,45 s (CSV) son unos 7″ (unos 4 px en la RASA, a 1,932″/px, y unos 90 px en la ASI585MC, a 0,0758″/px); ±0,5 s (sesión), unos 8″; ±3 s (nombre) son 45″ (unos 600 px en la ASI585MC). Para eso haría falta `Measured` o el registro de la montura.
+
+**Zona horaria [Decidido].** La hora es UTC (`std::chrono::system_clock`). El CSV y la carpeta de sesión llevan `Z` (UTC). Si el `.txt` del AVI indica `TimeZone ≠ 0`, se **aplica el desfase** y se añade un aviso en `OpenResult::warnings`; `open()` no falla. Con los `.txt` reales, `TimeZone = 0` **[Decidido]**, pero la clave solo aparece en el `.txt` del AVI: las series PNG no la traen y se asume UTC **[Decidido]**. SUPUESTO: no se ha visto `TimeZone ≠ 0`, así que no se sabe el signo del desfase ni a qué horas afecta. Decidido: aplicarlo solo a las horas sin designador explícito de UTC (en el ejemplo, `StartCapture` lleva `Z`, luego ya es UTC), para no aplicarlo dos veces. Se verifica cuando aparezca un caso real.
 
 ---
 
@@ -133,15 +177,13 @@ struct SeriesInfo {
     std::string source_name;                  // ruta o identificador, para los logs
     std::string camera_id;                    // clave para buscar la calibración de la cámara
     int width, height;                        // píxeles de la imagen entregada
-    PixelFormat sensor_pattern;               // Mono, o patrón en el origen del sensor (SUPUESTO RGGB en la 585MC)
+    PixelFormat sensor_pattern;               // Mono, o patrón en el origen del sensor (RGGB en la 585MC, §2.2)
     int roi_start_x, roi_start_y;             // origen del recorte en el sensor (StartX / StartY del .txt)
     int bin;                                  // 1 (todo el material está en Bin 1, §2)
-    FlipMode acquisition_flip;                // "Flip" del .txt; la fuente no lo aplica
-    double exposure_s;                        // segundos (el .txt trae milisegundos)
-    double gain;                              // unidades de ASICap (no son dB); POR SERIE, no por fotograma
-    std::optional<double> sensor_temp_c;      // °C
-    std::optional<int> black_level;           // de "Brightness"; SUPUESTO: unidades en RAW8 sin confirmar (ver abajo)
-    std::optional<std::string> output_format; // de "Output Format = *.AVI" -> "AVI"; vacío si el .txt no lo trae
+    FlipMode acquisition_flip;                // "Flip" del .txt (Horizon en la 2600MM, None en la 585MC); la fuente no lo aplica
+    std::string colour_format;                // "RAW8" (RAW16 después), de "Colour Format"
+    bool raw_mosaic;                          // "Raw Format = ON": el fichero trae el mosaico sin debayer (cámaras en color)
+    std::optional<std::string> output_format; // de "Output Format = *.AVI" -> "AVI"; "PNG" lo rellena PngSequenceSource
     std::optional<std::uint64_t> frame_count; // vacío en directo
     std::optional<std::chrono::system_clock::time_point> start_capture, end_capture;
     std::optional<std::chrono::nanoseconds> frame_period;   // calculado o configurado
@@ -149,29 +191,33 @@ struct SeriesInfo {
 };
 ```
 
-**Asociación con el fotograma y con la calibración [Decidido, D4].** Los metadatos están en un único objeto inmutable, compartido por todos los fotogramas de la serie con `shared_ptr<const SeriesInfo>`. No se copian en cada fotograma.
+`SeriesInfo` ya **no** lleva ganancia, exposición, temperatura ni `black_level`: esos ajustes cambian de un fotograma a otro y viajan en `Frame::acquisition` (§2.2) **[Decidido]**.
+
+**Asociación con el fotograma y con la calibración [Decidido, D4].** Los metadatos **constantes** están en un único objeto inmutable, compartido por todos los fotogramas de la serie con `shared_ptr<const SeriesInfo>`. No se copian en cada fotograma. **[DECIDIDO]**: `PngSequenceSource` lo construye con el primer `.txt` disponible de la serie (§6.1).
 
 `SeriesInfo` describe **cómo se capturó** la imagen. La **geometría** (escala, giro, ejes, punto de referencia) vive en `calibration` y se enlaza por `camera_id`. Esta separación permite que DegorasASI rellene `SeriesInfo` sin `.txt`. El núcleo comprueba que ambos casan (tamaño, volteo esperado, recorte) y lo avisa si no, **[Decidido]**.
 
-Correspondencia con el `.txt` de ASICap (formato completo en §3.1):
+Correspondencia con el `.txt` de ASICap (formato completo en §3.1). El `.txt` de una serie PNG es **uno por fotograma** (`<nombre>.PNG.txt`) **[Decidido]**:
 
-| Campo del `.txt` | Campo de `SeriesInfo` |
-|---|---|
-| Cabecera `[ZWO ASI2600MM Pro]` | `camera_id` (tabla modelo → `camera_id`, §3.1) |
-| Exposure (`100ms`) | `exposure_s` |
-| Gain (`606`) | `gain` |
-| Bin (`1`) | `bin` |
-| Capture Area Size (`6248 * 4176`), StartX/StartY | `width`, `height`, `roi_start_x`, `roi_start_y` |
-| Colour Format (`RAW8`), Debayer Type (`NONE`) | tipo de `Frame::image`, `bits_per_sample`, `pixel_format` |
-| Temperature (`-0.5 C`) | `sensor_temp_c` |
-| Brightness (`1`) | `black_level` |
-| Flip (`Horizon`) | `acquisition_flip = Horizontal` |
-| Output Format (`*.AVI`, solo en el `.txt` del vídeo) | `output_format = "AVI"` |
-| StartCapture / EndCapture / FrameCount / TimeZone (solo AVI) | `start_capture`, `end_capture`, `frame_count`; `TimeZone` según §2.3 |
+| Campo del `.txt` | Destino | Nivel |
+|---|---|---|
+| Cabecera `[ZWO ASI2600MM Pro]` | `camera_id` (tabla modelo → `camera_id`, §3.1) | `SeriesInfo` |
+| Bin (`1`) | `bin` | `SeriesInfo` |
+| Capture Area Size (`6248 * 4176`), StartX/StartY | `width`, `height`, `roi_start_x`, `roi_start_y` | `SeriesInfo` |
+| Colour Format (`RAW8`), Raw Format (`ON`), Debayer Type (`NONE` / `RGGB`) | `colour_format`, `raw_mosaic`, tipo de `image`, `bits_per_sample`, `sensor_pattern`, `pixel_format` | `SeriesInfo` (y `Frame`) |
+| Flip (`Horizon` / `None`) | `acquisition_flip = Horizontal` / `None` | `SeriesInfo` |
+| Output Format (`*.AVI`, solo en el `.txt` del vídeo) | `output_format = "AVI"` | `SeriesInfo` |
+| StartCapture / EndCapture / FrameCount / TimeZone (solo AVI) | `start_capture`, `end_capture`, `frame_count`; `TimeZone` según §2.3 | `SeriesInfo` |
+| Exposure (`100ms`) | `acquisition.exposure_s` | `Frame` |
+| Gain (`606`) | `acquisition.gain` | `Frame` |
+| Temperature (`-0.5 C`) | `acquisition.sensor_temp_c` | `Frame` |
+| Brightness (`1`) | `acquisition.black_level` | `Frame` |
 
-**Ganancia y ajustes por serie [Decidido].** `gain`, `exposure_s`, `sensor_temp_c` y `black_level` describen la **serie**, no cada fotograma. Los dos `.txt` reales lo muestran: la ganancia es 606 en la serie PNG y 500 en el AVI, y la temperatura es −0,5 °C y −0,7 °C. El núcleo no debe suponer una ganancia fija entre series. SUPUESTO: la autoexposición no está activa (el `.txt` solo trae sus límites, `Auto Exp Max Exp`, `Auto Exp Max Gain` y `Auto Exp Target Brightness`; según el resumen del contexto no se usa), de modo que exposición y ganancia son constantes dentro de la serie.
+**Ajustes por fotograma [Decidido].** Con el paquete del ROA, el `.txt` es por fotograma: hay 367 `.txt` para 372 PNG (300 de la 585MC y 67 de la 2600MM; los 5 PNG sin `.txt` son las series sueltas de RASA, Polaris y FK51481). Los ajustes **sí cambian dentro de una serie**: en RASA/Matar hay 5 ganancias distintas en 17 fotogramas (472, 475, 498, 519 y 530) y en SFEL/Polaris la temperatura pasa de 0,2 a 0,1 °C. El núcleo no debe suponer una ganancia fija ni dentro de una serie ni entre series (en los dos `.txt` de `tests/data/asicap/` es 606 y 500). Esto sustituye a la decisión anterior de «ganancia por serie» y a su SUPUESTO de que la autoexposición estaba desactivada: no hace falta saberlo, porque cada fotograma trae la suya. Los campos constantes de `SeriesInfo` también están en cada `.txt`: **[DECIDIDO]** si alguno cambia dentro de la serie (cámara, tamaño, recorte, `Flip`, formato), la fuente avisa en `ReadResult::warnings` de ese fotograma y sigue con los valores de `SeriesInfo`.
 
-**`black_level` y `output_format` [Decidido].** `black_level` sale de `Brightness`. SUPUESTO: no se sabe en qué unidades está en RAW8 (puede ser un desplazamiento del sensor y no cuentas digitales). Hasta comprobarlo con fotogramas oscuros, el núcleo **no** debe restarlo como nivel de negro **[Decidido]**. `output_format` sale de `Output Format = *.AVI` (sin el `*.`). El `.txt` de la serie PNG no trae esa clave: queda vacío, y `PngSequenceSource` lo rellena con `"PNG"` **[Decidido]**.
+**Fotograma sin `.txt` [Decidido].** Si un PNG no tiene `.txt`, usa los ajustes del fotograma anterior de la serie y avisa en `warnings`; si es el primero, usa los del siguiente que sí lo tenga. Detalles en §6.1.
+
+**`black_level` y `output_format` [Decidido].** `black_level` sale de `Brightness` y se expresa en unidades originales del sensor (`raw`, §2.2). SUPUESTO: no se sabe en qué unidades está en RAW8 (puede ser un desplazamiento del sensor y no cuentas digitales; la 585MC trae 3 y la 2600MM 1). Hasta comprobarlo con fotogramas oscuros, el núcleo **no** debe restarlo como nivel de negro **[Decidido]**. `output_format` sale de `Output Format = *.AVI` (sin el `*.`). El `.txt` de la serie PNG no trae esa clave: queda vacío, y `PngSequenceSource` lo rellena con `"PNG"` **[Decidido]**.
 
 **Identificación de la cámara [Decidido].** El `.txt` identifica la cámara por su **cabecera `[modelo]`**, y una tabla modelo → `camera_id` (§3.1) da el `camera_id`. Además hay un respaldo por tamaño de imagen con el sensor completo:
 
@@ -184,39 +230,40 @@ Si el tamaño no coincide con ninguno (por ejemplo, un recorte), `camera_id` **s
 
 **Comprobación cruzada [Decidido].** Si el `camera_id` elegido (por configuración o por el `.txt`) no casa con el de la tabla para el tamaño de imagen de sensor completo, `open()` **abre y avisa** en `OpenResult::warnings`. Ejemplo: `camera_id = ASI585MC` con una imagen de 6248 × 4176. El riesgo es usar la calibración de la otra cámara: las escalas son 1,932″/px y 0,0758″/px, un factor de unos 25 (§2), y el desvío en arcsec saldría ×25 mal. El aviso debe mostrarse al operador. **Con recorte [Decidido].** Si el tamaño no es el de un sensor completo, se comprueba que el recorte cabe en el sensor de la cámara elegida: `roi_start_x + width ≤ ancho del sensor` y `roi_start_y + height ≤ alto del sensor` (sensores de la tabla: 6248 × 4176 en la `ASI2600MM`, 3840 × 2160 en la `ASI585MC`). Si no cabe, `open()` abre y avisa en `warnings`, con el mismo riesgo de calibración equivocada (×25). La misma comprobación detecta una imagen de tamaño completo con `StartX`/`StartY` distintos de 0. Si el `camera_id` no figura en la tabla, la comprobación no es posible y no se avisa **[Decidido]**. Si el `camera_id` de la configuración difiere del que da la cabecera `[modelo]`, también se avisa en `warnings`, por el mismo riesgo ×25 **[Decidido]**.
 
-**Sensor completo [Decidido].** En los dos `.txt` reales de la ASI2600MM, `Capture Area Size = 6248 * 4176` y `StartX = StartY = 0`: son series de sensor completo. Si un `.txt` trajera un recorte, `StartX/StartY` desplazaría el punto de referencia respecto al que supone la calibración, y las comprobaciones de arriba lo avisan. SUPUESTO: no hay todavía un `.txt` real de la ASI585MC, así que para ella el sensor completo sigue sin comprobarse.
+**Sensor completo [Decidido].** En los `.txt` reales de la ASI2600MM (67 en el paquete y los dos de `tests/data/asicap/`) y de la ASI585MC (300 en el paquete y el de `tests/data/asicap/`), `Capture Area Size` es el del sensor completo (`6248 * 4176` y `3840 * 2160`) y `StartX = StartY = 0`. Si un `.txt` trajera un recorte, `StartX/StartY` desplazaría el punto de referencia respecto al que supone la calibración, y las comprobaciones de arriba lo avisan.
 
 ### 3.1 Formato del `.txt` de ASICap
 
-Formato observado en los dos ficheros reales de la ASI2600MM, copiados en `tests/data/asicap/` (`asi2600mm_serie_png.txt` y `asi2600mm_serie_avi.txt`).
+Formato observado en los 367 `.txt` del paquete del ROA (300 de la ASI585MC y 67 de la ASI2600MM, uno por fotograma) y en tres ficheros de ejemplo copiados en `tests/data/asicap/`: `asi2600mm_serie_png.txt` (el `.txt` de un fotograma PNG de la 2600MM), `asi2600mm_serie_avi.txt` (el del vídeo) y `asi585mc_fotograma_png.txt` (el de un fotograma PNG de la 585MC, SFEL/Altair, tal como lo entregó el ROA).
 
 **Estructura [Decidido].**
 - La primera línea es una **cabecera** `[modelo]`, por ejemplo `[ZWO ASI2600MM Pro]`.
 - Después, una línea por ajuste con la forma `Clave = Valor`. La clave puede llevar espacios (`Capture Area Size`).
 - Las **unidades van dentro del valor**: `100ms`, `30000ms`, `-0.5 C`, `6248 * 4176` (ancho `*` alto), `*.AVI`, `2026-10-28T19:16:31.237Z`, `No Limit`, `ON`/`OFF`.
 - Las claves **desconocidas se ignoran sin fallar**.
-- La serie PNG trae menos claves que el vídeo: el `.txt` del AVI añade `Output Format`, `StartCapture`, `EndCapture`, `TimeZone`, `FrameCount` y `Capture Limit`.
+- El `.txt` de una serie PNG es **uno por fotograma** (`<nombre>.PNG.txt`) y trae menos claves que el del vídeo (uno por AVI): el del AVI añade `Output Format`, `StartCapture`, `EndCapture`, `TimeZone`, `FrameCount` y `Capture Limit`. El de la ASI585MC añade `Raw Format`, `Debayer Preview`, `Mono Bin`, `White Balance (R)` y `White Balance (B)`.
 
-**Claves [Decidido]** (el reparto entre obligatorias y opcionales lo propuso la IA y lo ha aceptado Juan):
+**Claves**
 
 | Clave | Ejemplo | Uso | Estado |
 |---|---|---|---|
 | Cabecera `[modelo]` | `ZWO ASI2600MM Pro` | `camera_id` | Obligatoria, salvo que `camera_id` venga de la configuración |
-| `Exposure` | `100ms` | `exposure_s` | Obligatoria |
-| `Gain` | `606` | `gain` | Obligatoria |
+| `Exposure` | `100ms` | `acquisition.exposure_s` | Obligatoria |
+| `Gain` | `606` | `acquisition.gain` | Obligatoria |
 | `Bin` | `1` | `bin` | Obligatoria |
 | `Capture Area Size` | `6248 * 4176` | `width`, `height` | Obligatoria |
 | `Colour Format` | `RAW8` | tipo, `bits_per_sample` | Obligatoria |
 | `StartX`, `StartY` | `0` | `roi_start_x`, `roi_start_y` | Obligatoria |
-| `Flip` | `Horizon` | `acquisition_flip` | Obligatoria |
-| `Debayer Type` | `NONE` | comprobación | Opcional: si no es `NONE`, aviso |
-| `Temperature` | `-0.5 C` | `sensor_temp_c` | Opcional |
-| `Brightness` | `1` | `black_level` | Opcional |
+| `Flip` | `Horizon` / `None` | `acquisition_flip` | Obligatoria (`Horizon` en la 2600MM, `None` en la 585MC) |
+| `Raw Format` | `ON` | `raw_mosaic` | Opcional (solo cámaras en color; la 2600MM no la trae) |
+| `Debayer Type` | `NONE` / `RGGB` | `sensor_pattern`, comprobación | Opcional. Aviso solo si `Raw Format = OFF` y `Debayer Type ≠ NONE` (el fichero podría ya estar con debayer). Con `Raw Format = ON` (585MC) no hay aviso aunque valga `RGGB` |
+| `Temperature` | `-0.5 C` | `acquisition.sensor_temp_c` | Opcional |
+| `Brightness` | `1` | `acquisition.black_level` | Opcional |
 | `Timestamp Frames` | `OFF` | comprobación | Opcional: si es `ON`, aviso (no está soportado; ver la nota de debajo) |
 | `Output Format` | `*.AVI` | `output_format` | Opcional (solo vídeo) |
 | `StartCapture`, `EndCapture`, `FrameCount` | `2026-10-28T19:16:31.237Z`, `226` | §2.3 regla 1 | Opcional (solo vídeo) |
 | `TimeZone` | `0` | §2.3 | Opcional (solo vídeo) |
-| `Auto Exp Max Exp`, `Auto Exp Max Gain`, `Auto Exp Target Brightness`, `Hardware Bin`, `High Speed Mode`, `USB Limit`, `USB Port`, `Capture Limit` | — | sin uso | Conocidas e ignoradas |
+| `Auto Exp Max Exp`, `Auto Exp Max Gain`, `Auto Exp Target Brightness`, `Hardware Bin`, `Mono Bin`, `Debayer Preview`, `White Balance (R)`, `White Balance (B)`, `High Speed Mode`, `USB Limit`, `USB Port`, `Capture Limit` | — | sin uso | Conocidas e ignoradas |
 
 **`Timestamp Frames = ON` [Decidido].** Hay que comprobar si ASICap dibuja la hora sobre la imagen. Si lo hace, esos píxeles quedan contaminados y no son datos del cielo. Todo el material actual trae `OFF`, así que no afecta hoy, pero la fuente avisa si encuentra `ON`.
 
@@ -233,7 +280,7 @@ Formato observado en los dos ficheros reales de la ASI2600MM, copiados en `tests
 | Cabecera `[modelo]` | `camera_id` | Sensor completo | Estado |
 |---|---|---|---|
 | `ZWO ASI2600MM Pro` | `ASI2600MM` | 6248 × 4176 | Visto en los `.txt` reales |
-| `ZWO ASI585MC Pro` | `ASI585MC` | 3840 × 2160 | SUPUESTO: no hay `.txt` real de la 585MC; el texto se deduce por analogía |
+| `ZWO ASI585MC Pro` | `ASI585MC` | 3840 × 2160 | Visto en los 300 `.txt` de la 585MC del paquete del ROA (se retira el SUPUESTO anterior; hay uno copiado en `tests/data/asicap/asi585mc_fotograma_png.txt`) |
 
 Si la cabecera no está en la tabla, `open()` no falla: avisa en `warnings` y usa el `camera_id` de la configuración o el respaldo por tamaño **[Decidido]**.
 
@@ -257,6 +304,7 @@ struct ReadResult {
     std::shared_ptr<const Frame> frame;   // no nulo solo si status == Ok
     std::uint64_t index;                  // índice al que se refiere (incluido en Corrupt)
     std::string message;                  // diagnóstico legible; vacío en Ok
+    std::vector<std::string> warnings;    // avisos de ESTE fotograma [Decidido]: sin .txt (ajustes heredados), hora de otra fuente...
 };
 
 struct OpenResult {
@@ -363,7 +411,8 @@ Ningún método de la interfaz lanza. Dentro de cada fuente, las llamadas a Open
 | Situación | Estado | Qué hace el núcleo |
 |---|---|---|
 | Fotograma correcto | `Ok` | Lo procesa |
-| PNG ilegible, truncado, de otro tamaño o con canales distintos de 1 | `Corrupt` con su `index` y sin imagen | Lo trata como fotograma perdido: la máquina de estados decide (§5, §6); no cierra |
+| PNG ilegible (`io::loadFrame` devuelve `false`), truncado, de otro tamaño o con canales distintos de 1 (comprobado con la cabecera IHDR, §6.1) | `Corrupt` con su `index` y sin imagen | Lo trata como fotograma perdido: la máquina de estados decide (§5, §6); no cierra |
+| PNG sin `.txt` | `Ok`, con `warnings` | Usa los ajustes del fotograma anterior (del siguiente si es el primero) **[Decidido]** |
 | Hueco en la numeración `NNNN` | `Corrupt` por cada índice que falta | Igual que el anterior; no se salta en silencio **[Decidido, D12]** |
 | Se acabaron los fotogramas | `EndOfSource` | Termina la serie. Un `read()` posterior devuelve lo mismo |
 | `request_stop()` | `EndOfSource` con `message` | Termina |
@@ -380,7 +429,7 @@ La GUI retiene solo el último fotograma y su resultado (*latest-wins*). Como m�
 - **`Fast`: el procesado nunca descarta**, para que los experimentos sean reproducibles. La lectura por *pull* ya aplica contrapresión, de modo que no se forma cola. Como no se salta nada, todos los fotogramas se validan y toda la corrupción se informa (`Corrupt`). En `Realtime`, en cambio, la corrupción de los fotogramas saltados no se detecta (§4).
 - **`Realtime` (cámara o simulador de ficheros): se descartan los intermedios** y se entrega el fotograma que corresponde al instante actual. La política depende del **modo de ritmo**, no de la fuente. Los saltados se cuentan en `SourceStats::dropped` para mostrárselos al operador, y los índices de `Frame` hacen visibles los huecos. Definición exacta en §4.
 
-**Propuestas de la IA sobre esta regla:**
+**Propuestas sobre esta regla:**
 - La capacidad de la cola de la fuente en vivo se concreta al integrar DegorasASI **[Decidido: se diseña entonces]**.
 - La trayectoria del overlay (§4, amarillo) debe guardar **coordenadas**, no fotogramas, para no romper el límite de memoria.
 
@@ -450,18 +499,39 @@ flowchart LR
 
 ### 6.1 `PngSequenceSource` (ahora)
 
-- Lee una serie `AAAA-MM-DD-HHMM_d-CapObj_NNNN.PNG` (§3), ordenada por el número `NNNN`.
-- Lee el `.txt` de la serie para rellenar `SeriesInfo` (§3). Si no hay `.txt`, solo abre si la configuración aporta los campos mínimos; si no, `open()` falla y lista lo que falta **[Decidido]**. El `camera_id` puede deducirse del tamaño de la imagen (§3) **[Decidido]**.
-- El índice es `NNNN` menos el primer `NNNN` de la serie **[Decidido]**.
-- Lee el `.txt` según el formato de §3.1. Su configuración incluye `camera_id` (opcional), `frame_period` (obligatorio para `Realtime`, sin valor por defecto **[Decidido]**) y rellena `output_format = "PNG"` si el `.txt` no lo trae **[Decidido]**.
+**Usa `dpot` en lugar de reimplementarlo [Decidido]:** lee los PNG con `dpot::io::loadFrame` y averigua la hora con `dpot::io::captureTime`.
+
+- Lee una serie `AAAA-MM-DD-HHMM_d-CapObj_NNNN.PNG` (§3), ordenada por el número `NNNN`. El índice es `NNNN` menos el primer `NNNN` de la serie **[Decidido]**.
+- **El `.txt` es uno por fotograma** (`<nombre>.PNG.txt`, §3.1) **[Decidido]**. **[DECIDIDO]** Al abrir, lista los ficheros y comprueba solo si existe el `.txt` de cada uno, sin leerlo, y construye `SeriesInfo` con el primer `.txt` disponible. En cada `read()` lee el `.txt` de ese fotograma y rellena `Frame::acquisition`. `skip_to` no lee los `.txt` de los fotogramas saltados.
+- **Fotograma sin `.txt` [Decidido]:** usa los ajustes del fotograma anterior de la serie y avisa en `ReadResult::warnings`; si es el primero, usa los del siguiente que sí tenga `.txt`. **[DECIDIDO]** Tras un `skip_to`, «el anterior» es el último fotograma leído. Si ningún fotograma de la serie tiene `.txt`, solo abre si la configuración aporta los campos mínimos; si no, `open()` falla y lista lo que falta. El `camera_id` puede deducirse del tamaño de la imagen (§3) **[Decidido]**.
+- **Series convertidas desde un AVI (§6.2) [Decidido]:** el `.txt` es uno solo, el del vídeo. La configuración admite un `series_txt` opcional con las claves de serie (`StartCapture`, `EndCapture`, `FrameCount`) para la regla del AVI de §2.3.
+- Su configuración incluye `camera_id` (opcional) y `frame_period` (obligatorio para `Realtime` y para las horas de sesión y de nombre, sin valor por defecto **[Decidido]**), y rellena `output_format = "PNG"` si el `.txt` no lo trae **[Decidido]**.
 - **Implementa `skip_to` desde ya [Decidido].** Al abrir, construye la tabla índice → fichero **solo con los nombres**, sin decodificar. `skip_to(index)` mueve el cursor sobre esa tabla: saltar es avanzar en la lista de ficheros, sin leerlos ni decodificarlos. Si el índice pedido cae en un hueco de numeración, el siguiente `read()` devuelve `Corrupt` para ese índice, como siempre.
-- Decodifica con `cv::imread` y `IMREAD_UNCHANGED` **[Decidido, D12 (a)]**. Se comprueba que sea de 1 canal, de tipo 8 o 16 bits y del tamaño de la serie.
+- **Decodifica con `dpot::io::loadFrame` [Decidido, sustituye a `cv::imread` de D12 (a)].** Devuelve un `dpot::common::Frame` de gris `uint16` (8 bits ×257) con `bitDepth` 8 o 16. Si devuelve `false`, el resultado es `Corrupt` con el mensaje de `dpot`. `loadFrame` no lanza excepciones. La imagen se mueve al `Frame` del núcleo.
+- **Validación previa con la cabecera IHDR [Decidido].** `loadFrame` convierte en silencio un PNG en color a gris y no informa del número de canales. Antes de decodificar, la fuente lee los primeros 33 bytes del PNG (ancho, alto, profundidad y tipo de color) y comprueba que son de 1 canal, de 8 o 16 bits y del tamaño de la serie; si no, `Corrupt` sin decodificar 26 MP.
 - Los ficheros que no siguen el patrón de nombre se ignoran y se anotan en `OpenResult::warnings` **[Decidido]**.
-- SUPUESTO: `IMREAD_UNCHANGED` entrega 1 canal sin conversión con un PNG de ASICap; se comprueba con un PNG real. También hay que verificar que `cv::imread` abre rutas con caracteres no ASCII en Windows; si no, se leerán los bytes con `std::ifstream` y se decodificarán con `cv::imdecode`.
+
+**Qué resuelve `dpot` y qué falta [Decidido: usarlo; la columna «falta» es DECIDIDO]**
+
+| Necesidad | Lo que ya da `dpot` | Lo que falta en `frame_source` |
+|---|---|---|
+| Leer un PNG gris de 8 o 16 bits | `io::loadFrame` (stb): `uint16`, ×257, `bitDepth`, mensaje de error | Comprobar tamaño y canales sin decodificar (IHDR); traducir el fallo a `Corrupt` |
+| Hora del fotograma | `io::captureTime`: CSV, carpeta de sesión y nombre, con su `TimeSource` | La décima del nombre (solo lee HHMM); semiancho, calidad y `basis`; conversión de `UtcTime` a `system_clock`; `índice × periodo` |
+| `.txt` de ASICap | Nada | Parser de §3.1, tabla modelo → `camera_id`, comprobaciones de §3 |
+| Interfaz de fuente, ritmo, errores, `skip_to` | Nada | Todo §4 y §5 |
+| Fase Bayer corregida por el recorte | Nada (`detection/bayer.h` son algoritmos de otra etapa) | Tabla de §2.2 |
+
+**¿Hay que modificar `dpot`? [Decidido]: no, por ahora.** Todo lo que falta se resuelve en `frame_source`, por encima de las funciones públicas. `libs/dpot/` sigue idéntico a la entrega del ROA (PR #6) y es fácil de actualizar. Si más adelante estorban, hay dos parches pequeños, cada uno en su PR: (a) `sources/io/capture_time.cpp` que lea la décima del nombre; (b) `sources/io/png_io.cpp` que exponga tamaño y canales sin decodificar (`stbi_info`) y defina `STBI_WINDOWS_UTF8` si las rutas no ASCII fallan. Lo que se modifique de `libs/dpot/` seguiría bajo la GPL-3.0-or-later y, en `thirdparty/faster-astap`, bajo MPL 2.0.
+
+**SUPUESTOS que se comprueban al implementar:**
+- `stbi_load_16` falla con un PNG truncado y no devuelve una imagen a medias (test del apartado 8).
+- Las rutas con caracteres no ASCII en Windows funcionan con stb (`dpot` no define `STBI_WINDOWS_UTF8`); sustituye al SUPUESTO anterior sobre `cv::imread`.
+- El PNG de ASICap de la 585MC es de 1 canal (el mosaico), y el de la 2600MM también (se verifica con el IHDR de un PNG real).
+- La lectura de un PNG de 26 MP cuesta unos 100 ms (cifra del ROA, sin verificar); se mide en `docs/experimentos/` (§8).
 
 ### 6.2 AVI
 
-- **Ahora: convertir a PNG [Decidido, D11 (d)].** Un script de Python en `prototypes/python/`, **marcado PRUEBA** (usa `opencv-python`, que trae FFmpeg, §3). Convierte cada AVI a una secuencia PNG y copia al lado el `.txt` con `StartCapture`, `EndCapture` y `FrameCount`, para que la hora estimada siga la regla 1 de §2.3.
+- **Ahora: convertir a PNG [Decidido, D11 (d)].** Un script de Python en `prototypes/python/`, **marcado PRUEBA** (usa `opencv-python`, que trae FFmpeg, §3). Convierte cada AVI a una secuencia PNG y escribe al lado el `.txt` del vídeo, con `StartCapture`, `EndCapture` y `FrameCount`, que `PngSequenceSource` recibe como `series_txt` (§6.1), para que la hora estimada siga la regla del AVI de §2.3.
 - **Definitivo: pedir al ROA que añada FFmpeg a opencv4 [Decidido].** Entonces `VideoFileSource` usa `cv::VideoCapture`. Hay que comprobar con la versión del entorno (OpenCV 4.14) que entrega los valores RAW8 **sin alterar**, antes de darla por buena. Riesgo (SUPUESTO): el backend FFmpeg puede devolver el fotograma en 3 canales o con conversión de rango. Prueba de aceptación: los valores deben ser idénticos, píxel a píxel, a los de la secuencia PNG convertida.
 - **Plan B [Decidido]:** lector RIFF propio (`AviRiffSource`), solo si no se consigue FFmpeg. Problema que habría que documentar y resolver: el AVI de ejemplo pesa 5,9 GB, más que un RIFF clásico (2 GB), por lo que probablemente usa OpenDML (extensiones `RIFF AVIX` e índices `ix##`). Además hay que tratar el relleno de filas y el orden de filas del DIB. SUPUESTO: ASICap escribe OpenDML (a verificar con la cabecera real).
 - **Descartada: QtMultimedia [Decidido]**, porque obligaría a poner la fuente en `apps/gui` (regla de Qt), dejaría fuera la CLI y los tests, y podría convertir a color los fotogramas (§3).
@@ -493,8 +563,8 @@ Fuente que sirve una lista de fotogramas ya construidos en memoria. Permite prob
 | `close()` y `open()` de nuevo | Reinicia el índice a 0 |
 | `request_stop()` con `read()` bloqueado | Despierta y devuelve `EndOfSource` |
 | Un hilo distinto del consumidor llama a `read()` | No soportado: un solo consumidor |
-| Memoria: un fotograma de la 2600MM ocupa unos 26 MB | Un AVI de 5,9 GB no se carga entero; se lee fotograma a fotograma |
-| Flip de la serie distinto del que espera la calibración | La fuente lo informa; avisa el núcleo, no la fuente |
+| Memoria: un fotograma de la 2600MM ocupa unos 26 MB en el PNG y 52 MB en el `Frame` (`uint16`) | Un AVI de 5,9 GB no se carga entero; se lee fotograma a fotograma |
+| `Flip` distinto del que declara la calibración (`Horizon` en la 2600MM, `None` en la 585MC) | La fuente lo informa en `SeriesInfo::acquisition_flip`; avisa el núcleo, no la fuente **[Decidido]** |
 | `TimeZone ≠ 0` en el `.txt` | Se aplica el desfase y se avisa en `warnings`; no falla **[Decidido]** |
 | Tamaño de imagen sin coincidencia con un sensor completo y sin `camera_id` en la configuración | `open()` falla y lo indica **[Decidido]** |
 | `camera_id` que no casa con el de la tabla para un tamaño de sensor completo | `open()` abre y avisa en `warnings` (riesgo: calibración equivocada, error ×25) **[Decidido]** |
@@ -507,23 +577,36 @@ Fuente que sirve una lista de fotogramas ya construidos en memoria. Permite prob
 | `.txt` sin una clave obligatoria, o con un valor ilegible en una obligatoria | `open()` falla y nombra las claves **[Decidido]** |
 | `.txt` con un valor ilegible en una clave opcional | Se ignora y avisa en `warnings` **[Decidido]** |
 | `.txt` con una clave repetida | Gana la última y avisa en `warnings` **[Decidido]** |
-| `Debayer Type ≠ NONE` o `Timestamp Frames = ON` en el `.txt` | `open()` abre y avisa en `warnings`; con `Timestamp Frames = ON`, hay que comprobar si ASICap dibuja la hora sobre la imagen (esos píxeles quedarían contaminados) **[Decidido]** |
+| `Raw Format = OFF` con `Debayer Type ≠ NONE`, o `Timestamp Frames = ON`, en el `.txt` | `open()` abre y avisa en `warnings`; con `Timestamp Frames = ON`, hay que comprobar si ASICap dibuja la hora sobre la imagen (esos píxeles quedarían contaminados) **[Decidido]** |
+| 585MC con `Raw Format = ON` y `Debayer Type = RGGB` | Sin aviso: es el mosaico en bruto **[Decidido]** |
 | Cabecera `[modelo]` que no está en la tabla | `open()` abre y avisa; usa la configuración o el tamaño **[Decidido]** |
 | Cabecera `[modelo]` con espacios sobrantes al principio o al final | Se ignoran: se comprueba igual contra la tabla **[Decidido]** |
 | `.txt` con finales de línea CRLF o LF | Se aceptan los dos |
+| PNG sin `.txt` | Usa los ajustes del fotograma anterior (del siguiente si es el primero) y avisa en `ReadResult::warnings`; si ningún fotograma tiene `.txt`, `open()` falla salvo que la configuración aporte lo mínimo **[Decidido]** |
+| Ganancia, exposición, temperatura o `black_level` distintos entre fotogramas de la misma serie | Es lo normal: cada `Frame` lleva los suyos y no hay aviso **[Decidido]** |
+| Cámara, tamaño, recorte, `Flip` o formato distintos entre los `.txt` de una misma serie | Aviso en `warnings` de ese fotograma; sigue con `SeriesInfo` **[DECIDIDO]** |
+| `frame_times.csv` sin fila para un fotograma | Ese fotograma toma la hora de la sesión o del nombre y avisa **[DECIDIDO]** |
+| `Flip ≠ None` en una cámara con mosaico | Aviso en `warnings`: la fase Bayer podría haber cambiado **[DECIDIDO]** |
 
 ---
 
 ## 8. Cómo se probará
 
-Los tests siguen la regla de `CLAUDE.md`: datos sintéticos de solución conocida y, cuando los haya, recortes reales en `tests/data/`. Se compila con ucrt64 y, si es posible, con clang64.
+Los tests siguen la regla de: datos sintéticos de solución conocida y, cuando los haya, recortes reales en `tests/data/`. Se compila con ucrt64 y, si es posible, con clang64.
 
 **Tests unitarios con series sintéticas** (los PNG se generan en un directorio temporal, con el valor de cada píxel función del índice y la posición):
 
 1. **Orden e índice:** los fotogramas salen en orden de `NNNN`, con `index` = `NNNN` − primer `NNNN`. Se prueba con una serie que empieza en `NNNN = 0005`: el primer `index` es 0.
-2. **Forma y tipo:** 1 canal, `CV_8UC1`, tamaño de `SeriesInfo`, `white_level` = 255 y `bits_per_sample` = 8. Con un PNG de 16 bits, `CV_16UC1`.
+2. **Forma y tipo:** `image` es un `dpot::common::Frame` de 1 canal con las dimensiones de `SeriesInfo`. Con un PNG de 8 bits, `bitDepth` = 8, `px` = 257 × el original y `image.raw(x,y)` devuelve el original; con uno de 16 bits, `bitDepth` = 16. `white_level` = 255 (raw) y `white_level · 257` = 65535 en la escala de `image`; un píxel saturado cumple `at ≥ white_level · k` y `raw ≥ white_level`. `view()` es `CV_16UC1`, con el mismo contenido y la misma dirección de datos que `image.px.data()` (sin copia).
 3. **Fase Bayer:** para cada combinación de paridad de `StartX`/`StartY`, `pixel_format` coincide con la tabla de §2.2.
-4. **Hora:** con los datos del ejemplo de §3 (226 fotogramas, inicio 19:16:31,237 y fin 19:17:35,494), el fotograma 0 está en el inicio, el 225 en el fin y el periodo es 0,2856 s. Sin periodo, la calidad es `Unknown`. Con solo el nombre del fichero y un periodo configurado, la hora del fotograma 0 es `t0 + 1,5 s` con incertidumbre **±4,5 s** (con `1916_5`, 19:16:31,5 ± 4,5 s, intervalo que contiene el `StartCapture` real, 19:16:31,237). Con `TimeZone ≠ 0` se aplica el desfase y aparece un aviso en `warnings`, sin fallo.
+4. **Hora**, con las cuatro reglas de §2.3:
+    - *AVI:* con los datos del ejemplo (226 fotogramas, inicio 19:16:31,237 y fin 19:17:35,494), el fotograma 0 está en el inicio, el 225 en el fin y el periodo es 0,2856 s; `basis = SeriesStartEnd`.
+    - *CSV:* con un `frame_times.csv` de tres filas, `utc` es la hora de la fila menos 0,65 s, `quality = Estimated`, `uncertainty` = 0,45 s y `basis = FramesCsv`; `since_series_start` es la diferencia con el primero. Con una fila que falta, ese fotograma cae a la sesión o al nombre y deja un aviso.
+    - *Sesión:* sin CSV, en una carpeta `2026-10-28_19_24_41Z` y con periodo 0,285 s, el fotograma 0 está en 19:24:41,5 ± 0,5 s y el 10 en 19:24:44,35 ± 0,5 s.
+    - *Nombre:* sin CSV y sin carpeta de sesión, con `…-1924_4-…` y periodo configurado, `t0` = 19:24:24 y el fotograma 0 está en 19:24:27 ± 3 s. Con `1916_5`, en 19:16:33 ± 3 s, intervalo que contiene el `StartCapture` real (19:16:31,237).
+    - *Sin periodo:* con solo sesión o nombre, la calidad es `Unknown`.
+    - *`TimeZone ≠ 0`:* se aplica el desfase y aparece un aviso en `warnings`, sin fallo.
+    - *Verificación manual con las 8 sesiones del paquete* (no entra en el repo, se registra en `docs/experimentos/`): el intervalo `[t0, t0 + 6 s)` del nombre contiene el segundo de inicio de la carpeta de sesión en las 8.
 5. **Errores sin excepciones:** un PNG truncado devuelve `Corrupt` y el siguiente `read()` continúa; un hueco devuelve `Corrupt` con el índice; `EndOfSource` es idempotente; `read()` antes de `open()` devuelve `Fatal`. Ningún caso lanza.
 6. **`request_stop()`** despierta un `read()` bloqueado desde otro hilo.
 7. **`PacedSource`**, siempre con un reloj controlado por el test:
@@ -540,21 +623,28 @@ Los tests siguen la regla de `CLAUDE.md`: datos sintéticos de solución conocid
     - *Con `PngSequenceSource`*, en `Realtime` con procesado lento (el reloj controlado del test avanza varios periodos entre lecturas): se colocan **PNG deliberadamente corruptos** en los fotogramas que se van a saltar. Si no se decodifican, `stats().corrupt` es 0, el fotograma entregado es el correcto y `dropped` es el número de saltados. Si se decodificaran, aparecerían como `Corrupt`.
     - *Con una fuente de prueba sin `skip_to`* (por ejemplo, `MemoryFrameSource` con `skipper()` en `nullptr`): `PacedSource` lee y descarta los intermedios, `dropped` coincide con los saltados y `dropped_decoded` también.
     - `skip_to` directo: hacia atrás devuelve `false` y no cambia nada; más allá del final da `EndOfSource` en el siguiente `read()`; a un hueco de numeración da `Corrupt` con ese índice.
-10. **Parseo del `.txt`**, con los dos ficheros reales de `tests/data/asicap/`:
-    - `asi2600mm_serie_png.txt`: `camera_id = ASI2600MM` por la cabecera, sin configuración; `exposure_s = 0,1`; `gain = 606`; `bin = 1`; 6248 × 4176; `roi_start_x = roi_start_y = 0` (sensor completo, sin avisos de recorte); `acquisition_flip = Horizontal`; RAW8 (`CV_8U`, 8 bits); `sensor_temp_c = −0,5`; `black_level = 1`; **sin** `start_capture`, `end_capture` ni `frame_count`; `output_format` vacío (la fuente lo rellena con `"PNG"`); sin avisos.
+10. **Parseo del `.txt`** (uno por fotograma), con los tres ficheros reales de `tests/data/asicap/`:
+    - `asi2600mm_serie_png.txt`: `camera_id = ASI2600MM` por la cabecera, sin configuración; `acquisition.exposure_s = 0,1`; `acquisition.gain = 606`; `bin = 1`; 6248 × 4176; `roi_start_x = roi_start_y = 0` (sensor completo, sin avisos de recorte); `acquisition_flip = Horizontal`; RAW8 (`colour_format = "RAW8"`, 8 bits); `Debayer Type = NONE` (mono, `sensor_pattern = Mono`); `acquisition.sensor_temp_c = −0,5`; `acquisition.black_level = 1`; **sin** `start_capture`, `end_capture` ni `frame_count`; `output_format` vacío (la fuente lo rellena con `"PNG"`); sin avisos.
     - `asi2600mm_serie_avi.txt`: lo mismo, con `gain = 500`, `sensor_temp_c = −0,7`, `output_format = "AVI"`, `start_capture = 2026-10-28T19:16:31,237 Z`, `end_capture = 2026-10-28T19:17:35,494 Z`, `frame_count = 226` y `TimeZone = 0` sin aviso. El periodo derivado es 64,257 s / 225 = 0,28559 s.
-    - **La ganancia es por serie:** 606 en una y 500 en la otra.
-    - Las claves conocidas sin uso (`Auto Exp Max Exp`, `USB Port`, etc.) no generan avisos ni fallos.
-    - Copias modificadas de los dos ficheros (generadas en el test): con una clave desconocida añadida, abre sin fallo ni aviso; sin una clave obligatoria (por ejemplo, `Gain`), `open()` falla y la nombra; con la cabecera `[ZWO ASI585MC Pro]` y 6248 × 4176, abre y avisa de la incoherencia; con espacios sobrantes al principio y al final del nombre del modelo (por ejemplo, `[ ZWO ASI2600MM Pro ]`) o de la línea de cabecera, se obtiene el mismo `camera_id`; con finales de línea CRLF, el resultado es idéntico al de LF.
+    - `asi585mc_fotograma_png.txt` (el `.txt` real de un fotograma de la ASI585MC, SFEL/Altair): `camera_id = ASI585MC` por la cabecera `[ZWO ASI585MC Pro]`, sin configuración; 3840 × 2160; `roi_start_x = roi_start_y = 0` (sensor completo, sin avisos de recorte); `acquisition.exposure_s = 0,1`; `acquisition.gain = 214`; `bin = 1`; `acquisition_flip = None`; RAW8 (`colour_format = "RAW8"`); `raw_mosaic = true`; `sensor_pattern = BayerRGGB` y `pixel_format = BayerRGGB`; `acquisition.sensor_temp_c = 0,0`; `acquisition.black_level = 3`; **sin** `start_capture`, `end_capture` ni `frame_count`; `Debayer Type = RGGB` **sin aviso** porque `Raw Format = ON`; `Debayer Preview`, `Mono Bin` y `White Balance (R)`/`(B)` se ignoran sin aviso. En una copia con `Raw Format = OFF` y `Debayer Type = RGGB`, abre y avisa; con `Flip = Horizon`, abre y avisa de que la fase Bayer podría haber cambiado (§7).
+    - Las claves conocidas sin uso (`Auto Exp Max Exp`, `USB Port`, `White Balance (R)`, etc.) no generan avisos ni fallos.
+    - Copias modificadas de los ficheros (generadas en el test): con una clave desconocida añadida, abre sin fallo ni aviso; sin una clave obligatoria (por ejemplo, `Gain`), `open()` falla y la nombra; con la cabecera `[ZWO ASI585MC Pro]` y 6248 × 4176, abre y avisa de la incoherencia; con espacios sobrantes al principio y al final del nombre del modelo (por ejemplo, `[ ZWO ASI2600MM Pro ]`) o de la línea de cabecera, se obtiene el mismo `camera_id`; con finales de línea CRLF, el resultado es idéntico al de LF.
+11. **Ajustes por fotograma y `.txt` ausentes:**
+    - Serie sintética de 5 PNG con `.txt` de ganancias 472, 475, 498, 519 y 530 (las de RASA/Matar): cada `Frame` trae su ganancia en `acquisition.gain`, sin avisos.
+    - Con el `.txt` del fotograma 3 borrado: hereda los ajustes del 2 y `ReadResult::warnings` lo dice. Con el del fotograma 0 borrado: hereda los del 1.
+    - Sin ningún `.txt` y sin configuración mínima: `open()` falla y lista lo que falta; con ella, abre.
+    - Con `Flip` distinto en el `.txt` del fotograma 4: aviso en ese fotograma y sigue con `SeriesInfo`.
+    - `skip_to` no lee los `.txt` de los saltados: un `.txt` ilegible en un fotograma saltado no genera aviso.
+12. **Uso de `dpot` en la lectura:** un PNG truncado devuelve `Corrupt` y no lanza; un PNG de 3 canales devuelve `Corrupt` por la cabecera IHDR, sin decodificarlo; un PNG de otro tamaño, también; un PNG de 16 bits entrega `bitDepth` = 16. **Ruta con caracteres no ASCII en Windows:** si falla, se anota y se decide el parche (b) de §6.1.
 
-**Prueba propia con un PNG real de la ASI585MC (fase Bayer) [Decidido].** No es un test unitario: es una comprobación con material real, porque `pixel_format` no está validado (§2.2).
+**Verificación con un PNG real de la ASI585MC (fase Bayer) [Decidido].** No es un test unitario: es una comprobación con material real. Verifica el patrón RGGB que declara el `.txt` (§2.2). Los PNG están en el paquete del ROA (`images/SFEL-RX600_ASI585MCPRO/`), que no entra en el repo.
 
 1. Tomar un PNG real de la ASI585MC con cielo de fondo (sin estrellas brillantes en la zona de medida).
 2. Separar los 4 subplanos 2×2 (fila par/impar × columna par/impar) y calcular, en una zona de cielo de fondo, su media y su mediana (y la desviación típica, para saber qué diferencia es ruido).
 3. **Los dos subplanos verdes deben coincidir** (dentro del ruido). Los dos que coinciden están en una diagonal del bloque 2×2; esa es la diagonal verde:
    - verdes en la diagonal secundaria (posiciones (0,1) y (1,0)): patrón `RGGB` o `BGGR`;
    - verdes en la diagonal principal (posiciones (0,0) y (1,1)): patrón `GRBG` o `GBRG`.
-4. Comparar con el patrón esperado (RGGB, verdes en la diagonal secundaria): si el volteo se aplicó antes de guardar y el ancho es par, saldrá `GRBG` (verdes en la diagonal principal).
+4. Con `Flip = None` debe salir el patrón esperado (RGGB, verdes en la diagonal secundaria). Si salen en la diagonal principal, el `.txt` no describe el fichero y se pregunta al ROA (pregunta 3).
 5. Repetir con una imagen con `StartX`/`StartY` impares, si existe, para comprobar la tabla de §2.2.
 
 Límite de la prueba: identifica la diagonal verde, pero **no distingue rojo de azul** dentro de la otra diagonal. Para eso hace falta una referencia de color (un objeto de color conocido) o la confirmación del ROA (pregunta 3) **[Decidido]**. El resultado se registra en `docs/experimentos/`.
@@ -569,12 +659,16 @@ Límite de la prueba: identifica la diagonal verde, pero **no distingue rojo de 
 
 Pensado para la memoria de I+D.
 
+**Revisión con `dpot` (2026-11-23).** Las cinco decisiones de Juan de esta ronda (tipo de imagen, `.txt` por fotograma, prioridad de la hora, ASI585MC y uso de `dpot`) están marcadas **[Decidido]**: D1, D3, D4 y D12 se han reescrito y D14, D15 y D16 son nuevas.
+
+**Revisión de la PR #8.** Juan corrige la incertidumbre del CSV (la exposición es anterior a la escritura: `CSV − 0,65 s ± 0,45 s`) y acepta como **[Decidido]**: no modificar `dpot`, validar la cabecera IHDR, `warnings` en `ReadResult`, `TimeBasis` y `series_txt`. La estimación desde la carpeta de sesión se revisa con el mismo criterio y sigue como **[DECIDIDO]**. La pregunta 9 al ROA pasa a ser si el reloj del PC de captura está sincronizado (NTP). Se copia a `tests/data/asicap/` un `.txt` real de la ASI585MC y se usa en el test de parseo.
+
 | # | Decisión | Alternativas descartadas y motivo | Etiqueta |
 |---|---|---|---|
-| D1 | `cv::Mat` en su tipo de almacenamiento (`CV_8U` o `CV_16U`) más `bits_per_sample` y `white_level`. La fuente informa del `white_level`; no se asume `2^bits − 1`. | *Tipo fijo `uint8`*: impide RAW16 (§3). *Normalizar a `float`*: cuadruplica la memoria de una imagen de 26 MP y oculta el valor de saturación real. | [Decidido] |
+| D1 | `dpot::common::Frame` (`uint16`, datos de 8 bits ×257, `raw(x,y)` da el original) dentro del `Frame` del núcleo, más `bits_per_sample` y `white_level`. `white_level` y `black_level` en unidades originales del sensor (*raw*), con la traducción a la escala ×257 de §2.2. Vista `cv::Mat` sobre el mismo buffer, sin copia, para los algoritmos propios. No se asume `2^bits − 1`. **Sustituye** a la versión anterior (`cv::Mat` en `CV_8U`/`CV_16U`). | *`cv::Mat` propio (la versión anterior)*: obliga a convertir cada imagen de 26 MP para usar los algoritmos de `dpot` (D14). *Tipo fijo `uint8`*: impide RAW16 (§3). *Normalizar a `float`*: cuadruplica la memoria de una imagen de 26 MP y oculta el valor de saturación real. | [Decidido] |
 | D2 | Entrega en bruto (Mono o mosaico Bayer) con la fase ya corregida por `StartX`/`StartY`. El debayer, la extracción del verde y el superpíxel 2×2 son del preprocesado del núcleo. | *Debayer en la fuente*: pierde el valor original y mezcla el modo estrellas con el haz (§2, §5, §6). | [Decidido] |
-| D3 | `FrameTime` con `quality` e incertidumbre. Reglas de estimación de §2.3; con solo el nombre y un periodo configurado (sin valor por defecto), `t0 + 1,5 s ± 4,5 s` (SUPUESTO: el nombre trunca o redondea las décimas de minuto; la estimación cubre los dos casos). `TimeZone ≠ 0`: se aplica el desfase y se avisa. | *Solo índice*: impide cruzar con el registro de montura (§3). *`double` de segundos*: no distingue medido de estimado. *±6 s con `t0`*: sobreestima la incertidumbre. *Fallar con `TimeZone ≠ 0`*: bloquea material utilizable. | [Decidido] (calidad, incertidumbre, ±4,5 s, zona horaria, UTC en series PNG); resto de reglas [Decidido] |
-| D4 | `SeriesInfo` inmutable y compartido; geometría separada en `calibration`. `camera_id` por la cabecera `[modelo]` del `.txt` (tabla modelo → `camera_id`), con respaldo por tamaño de imagen (sensor completo); si no casa, se exige en la configuración. | *Copiar todo en cada fotograma*: desperdicio. *Fichero aparte sin enlace*: sin vínculo con el fotograma. *Exigir siempre `camera_id` en la configuración*: más fricción cuando el tamaño ya lo identifica. *Fiarse del `camera_id` sin comprobarlo*: un `camera_id` equivocado da una calibración equivocada, con un error ×25 en arcsec; por eso hay comprobación cruzada con aviso. | [Decidido] |
+| D3 | `FrameTime` con `quality` e incertidumbre. Prioridad por fotograma (§2.3): `frame_times.csv` (`Estimated`, `CSV − 0,65 s ± 0,45 s`), carpeta de sesión + índice × periodo (`S + 0,5 s ± 0,5 s`), nombre + índice × periodo (`t0 + 3 s ± 3 s`, el nombre **trunca**), nada (`Unknown`). Caso aparte del AVI: inicio/fin del `.txt`. `TimeZone ≠ 0`: se aplica el desfase y se avisa. | *Solo índice*: impide cruzar con el registro de montura (§3). *`double` de segundos*: no distingue medido de estimado. *Tratar el CSV como `Measured`*: es la hora de escritura en el PC, no la de la exposición. *CSV tal cual con un semiancho simétrico (±1,1 s)*: la exposición es siempre anterior a la escritura, el intervalo no puede ser simétrico. *`t0 + 1,5 s ± 4,5 s` (truncado o redondeo)*: ya no hace falta, el truncado está confirmado. *Fallar con `TimeZone ≠ 0`*: bloquea material utilizable. | [Decidido] (prioridad, calidad `Estimated` del CSV, `CSV − 0,65 s ± 0,45 s`, truncado, zona horaria, UTC en series PNG); `S + 0,5 s ± 0,5 s` de la carpeta de sesión: [DECIDIDO] (SUPUESTO: la carpeta trunca al segundo; el rango de retardo se midió solo en el primer fotograma de cada sesión) |
+| D4 | `SeriesInfo` inmutable y compartido con **solo lo constante** (cámara, tamaño, recorte, volteo, formato, `sensor_pattern`); los ajustes que cambian viajan en cada `Frame`. Geometría separada en `calibration`. `camera_id` por la cabecera `[modelo]` del `.txt` (tabla modelo → `camera_id`), con respaldo por tamaño de imagen (sensor completo); si no casa, se exige en la configuración. | *Copiar todo en cada fotograma*: desperdicio. *Ganancia por serie (versión anterior)*: los `.txt` son por fotograma y los ajustes cambian dentro de la serie (D15). *Fichero aparte sin enlace*: sin vínculo con el fotograma. *Exigir siempre `camera_id` en la configuración*: más fricción cuando el tamaño ya lo identifica. *Fiarse del `camera_id` sin comprobarlo*: un `camera_id` equivocado da una calibración equivocada, con un error ×25 en arcsec; por eso hay comprobación cruzada con aviso. | [Decidido] |
 | — | `index` = `NNNN` − primer `NNNN` de la serie. | *`NNNN` tal cual*: el índice dependería de dónde empezó la numeración de ASICap. | [Decidido] |
 | D5 | *Pull* en esta fase. El adaptador con cola para DegorasASI se diseña al integrarla. | *Push con callback*: los tests del núcleo dependerían de la planificación de hilos. | [Decidido] |
 | D6 | Resultado por estructura (`ReadResult`), sin excepciones; proyecto en C++20. | *Excepciones*: prohibidas por el requisito de pérdida de blanco sin cierres (§5). *`std::expected`*: descartado a favor de la estructura. | [Decidido] |
@@ -583,19 +677,23 @@ Pensado para la memoria de I+D.
 | D9 | Capacidad opcional `skip_to(index)`, solo hacia delante, en lugar de un `seek` genérico. `PngSequenceSource` la implementa ya (saltar = avanzar en la lista de ficheros, sin decodificar). `PacedSource` `Realtime` la usa si la fuente la ofrece; si no, decodifica y lo anota. | *`seek` genérico (también hacia atrás)*: más complejo y nadie lo necesita todavía. *`seek` obligatorio*: la fuente en vivo no puede implementarlo. *Sin salto*: en `Realtime`, saltar obligaría a decodificar fotogramas de 26 MP que se van a descartar. | [Decidido] |
 | D10 | La fuente no transforma píxeles; informa del volteo y la calibración declara el que espera. | *Aplicar el volteo en la fuente*: §5 indica que no hace falta con este material y DegorasASI lo aplicará. | [Decidido] |
 | D11 | AVI: convertir a PNG ahora (PRUEBA); definitivo con FFmpeg en opencv4; lector RIFF como plan B. | *QtMultimedia*: viola la regla de Qt y puede convertir a color. *Lector RIFF propio como primera opción*: coste alto por OpenDML. | [Decidido] |
-| D12 | `cv::imread` con `IMREAD_UNCHANGED`; los huecos de numeración se informan. | *Lector PNG propio*: sin motivo. | [Decidido] |
+| D12 | Lectura con `dpot::io::loadFrame` (stb); los huecos de numeración se informan. **Sustituye** a `cv::imread` con `IMREAD_UNCHANGED`. | *`cv::imread`*: obligaría a convertir a `dpot::common::Frame` cada imagen. *Lector PNG propio*: sin motivo, `dpot` ya lo hace. | [Decidido] |
 | D13 | Requisitos para DegorasASI de §4. | — | [Decidido] |
 | — | Regla de descarte: GUI *latest-wins* (máx. 2 en memoria); la política depende del modo de ritmo: `Fast` nunca descarta, `Realtime` descarta intermedios y cuenta. | *Descartar también en `Fast`*: experimentos no reproducibles. *Cola sin límite en la GUI*: memoria sin control. | [Decidido] |
 | — | `MemoryFrameSource` para los tests del núcleo. | *Generar PNG temporales para cada test del núcleo*: más lento y más frágil. | [Decidido] |
-| — | `pixel_format` sin validar para la 585MC; prueba propia con PNG real (estadística de los 4 subplanos 2×2). | *Dar por buena la fase RGGB*: el volteo puede cambiarla (§2.2). | [Decidido] |
+| — | `pixel_format` para la 585MC: `BayerRGGB` según el `.txt` (`Raw Format = ON`, `Debayer Type = RGGB`, `Flip = None`); sin volteo que cambie la fase. La 2600MM es mono. Volteo esperado por cámara en `calibration`: `Horizon` (2600MM) y `None` (585MC). Verificación con un PNG real (subplanos 2×2) se mantiene. | *Dar por buena la fase sin comprobar*: el `.txt` es declarativo, y es barato verificarlo. *Corregir por el volteo en la fuente*: no hace falta con este material (D10). | [Decidido] |
 | — | `warnings`, `SourceStats`, `request_stop()`, política de `FrameCount` inconsistente, prioridad entre las fuentes de `camera_id`, `TimeZone` solo a horas sin designador UTC. | — | [Decidido] |
-| — | `SeriesInfo` con `black_level` (de `Brightness`) y `output_format`; la ganancia y demás ajustes son por serie. | *Ganancia por fotograma*: el `.txt` es por serie. *Restar `black_level` como nivel de negro*: sus unidades en RAW8 no están confirmadas. | [Decidido] |
+| D15 | El `.txt` de ASICap es **por fotograma** (`<nombre>.PNG.txt`). `SeriesInfo` = lo constante; cada `Frame` lleva `acquisition` (ganancia, exposición, temperatura, `black_level`). Sin `.txt`: ajustes del fotograma anterior (del siguiente si es el primero) y aviso en `warnings`. `black_level` no se resta (unidades sin confirmar). **Sustituye** a «ganancia por serie». | *Ganancia por serie*: hay 5 ganancias distintas en 17 fotogramas de RASA/Matar. *Fallar si falta un `.txt`*: bloquearía 5 PNG utilizables del paquete. | [Decidido] |
 | — | Formato del `.txt`: cabecera `[modelo]`, líneas `Clave = Valor` con unidades dentro del valor; claves desconocidas ignoradas sin fallar. | *Fallar con claves desconocidas*: ASICap puede añadir claves en otras versiones. | [Decidido] |
-| — | Reparto de claves obligatorias y opcionales, lectura de unidades, claves repetidas, avisos con `Debayer Type` o `Timestamp Frames` (comprobar si ASICap dibuja la hora sobre la imagen), aviso si el `camera_id` de la configuración difiere del de la cabecera, `output_format = "PNG"` en series PNG y UTC en series PNG. | — | [Decidido] |
-| — | Fila de la ASI585MC en la tabla modelo → `camera_id` (`ZWO ASI585MC Pro`), deducida por analogía. | *Esperar a un `.txt` real*: bloquearía las pruebas de la 585MC. | SUPUESTO |
-| — | Truncado o redondeo de las décimas de minuto del nombre: hasta confirmarlo, `t0 + 1,5 s ± 4,5 s`. | *`t0 + 3 s ± 3 s` (solo truncado)*: el ejemplo real no distingue truncar de redondear. | SUPUESTO |
+| — | Reparto de claves obligatorias y opcionales, lectura de unidades, claves repetidas, aviso con `Timestamp Frames = ON` (comprobar si ASICap dibuja la hora sobre la imagen), aviso con `Debayer Type ≠ NONE` solo si `Raw Format = OFF`, aviso si el `camera_id` de la configuración difiere del de la cabecera, `output_format = "PNG"` en series PNG y UTC en series PNG. | — | [Decidido] |
+| — | Fila de la ASI585MC en la tabla modelo → `camera_id` (`ZWO ASI585MC Pro`). Era SUPUESTO por analogía; ahora está observada en 300 `.txt` del paquete del ROA. | — | [Decidido] |
+| D16 | Truncado de las décimas de minuto del nombre: confirmado en 6 de 8 sesiones; `t0 + 3 s ± 3 s`. **Retira** el SUPUESTO y la estimación `t0 + 1,5 s ± 4,5 s`. | *`t0 + 1,5 s ± 4,5 s`*: cubría truncado y redondeo, ya sin necesidad. | [Decidido] |
 | — | `black_level` solo informativo (no se resta como nivel de negro); la cabecera `[modelo]` se compara ignorando los espacios sobrantes al principio y al final; cabecera desconocida: se abre y se avisa; claves desconocidas solo en el log de depuración; orden de prioridad de `camera_id` (configuración, cabecera, tamaño). | *Restar `black_level`*: sus unidades en RAW8 no están confirmadas. *Fallar con una cabecera desconocida*: bloquearía una cámara nueva. | [Decidido] |
 | — | `Realtime` sobre series PNG exige periodo configurado, sin valor por defecto. | *Periodo por defecto de ~0,286 s*: es el de un AVI concreto; depende de la exposición, del recorte y del USB. | [Decidido] |
+| D14 | **Adoptar `dpot` (en `libs/dpot/`)** como base del tipo de imagen, de la lectura de PNG y de la hora. Motivo: los algoritmos del ROA (detección, medida, plate solving, modelo de cámara) trabajan sobre `dpot::common::Frame`; entregarlo tal cual evita copiar y reescalar cada imagen de 26 MP (52 MB) dentro de un presupuesto de ~100 ms, y la lectura de PNG y la hora ya están hechas y probadas por el ROA. La GPL-3.0-or-later del repo está decidida. | *`cv::Mat` propio en la interfaz*: obliga a convertir cada imagen de 26 MP (copia y paso a `uint16` ×257, o reescribir los algoritmos de `dpot`) y no aporta nada, porque OpenCV sigue disponible como vista sin copia. *Reimplementar la lectura y la hora*: duplicar código del ROA. Coste asumido: RAW8 ocupa el doble en memoria (52 MB frente a 26 MB) y la fuente queda acoplada a `dpot::common`. | [Decidido] |
+| — | `frame_times.csv` como primera fuente de hora (`Estimated`, `CSV − 0,65 s ± 0,45 s`), después carpeta de sesión y nombre. | *Fiarse solo del nombre*: ±3 s y solo décimas de minuto. | [Decidido] |
+| — | **Aceptado en la revisión de la PR #8:** no modificar `dpot` por ahora (parches (a) y (b) de §6.1, en PR aparte); validación con la cabecera IHDR antes de decodificar; `ReadResult::warnings`; `TimeBasis` en `FrameTime`; `series_txt` para los AVI convertidos; `.txt` de la 585MC en `tests/data/asicap/`. | *Modificar `dpot` ya*: rompe la copia idéntica al original sin necesidad. | [Decidido] |
+| — | **Siguen pendientes de revisión**: `view()` de solo lectura y vigente mientras viva el `Frame`; `to_raw`/`to_scaled`; umbrales de OpenCV en escala ×257; coste de memoria de 52 MB; `SeriesInfo` desde el primer `.txt` disponible; `.txt` leído en cada `read()` y no en los saltados; aviso si una clave constante cambia dentro de la serie; aviso con `Flip ≠ None` en una cámara con mosaico; la estimación `S + 0,5 s ± 0,5 s` de la carpeta de sesión. | — | [DECIDIDO] |
 
 ---
 
@@ -605,23 +703,30 @@ Pensado para la memoria de I+D.
 
 1. ¿Los AVI de ASICap (los de calibración y los de pasadas) son siempre sin comprimir? ¿Qué `fourcc` usan y están en formato OpenDML (AVI > 2 GB)?
 2. **Pedir que añadan FFmpeg a opencv4** en la configuración PoC-proc-video, para que `cv::VideoCapture` abra los AVI. ¿Lo harán, o hay que seguir con la conversión a PNG o con el plan B?
-3. ¿El PNG de la ASI585MC es el mosaico Bayer en 1 canal? ¿Se confirma el patrón RGGB? ¿Cambia la fase con un `StartX`/`StartY` impar o con el volteo (Flip = Horizon)?
+3. ¿Se confirma el patrón RGGB de la ASI585MC? El `.txt` dice `Debayer Type = RGGB` con `Raw Format = ON` y `Flip = None`, y lo comprobaremos con la estadística de los subplanos, que no distingue rojo de azul.
 7. ¿Qué entregará DegorasASI por fotograma (hora de cámara real, índice, descartados)? ¿Entrega por callback o por llamada bloqueante? ¿Quién controla la exposición y la ganancia? ¿Hay reconexión?
+9. **Reloj de captura.** ¿El reloj del PC que captura (el que escribe los PNG y del que sale `frame_times.csv`) está sincronizado, por ejemplo por NTP? Sin sincronizar, la exactitud absoluta de la hora del CSV podría ser de segundos y el intervalo de §2.3 no valdría.
 
-(Se mantiene la numeración de la ronda anterior. Las preguntas 4, 5, 6 y 8 se han retirado; ver abajo.)
+(Se mantiene la numeración de las rondas anteriores. Las preguntas 4, 5, 6 y 8 se han retirado.)
 
 ### Internas (las resolvemos nosotros)
 
-- **Resuelto con los dos `.txt` reales de la ASI2600MM (`tests/data/asicap/`):** el `.txt` identifica la cámara por la cabecera `[modelo]`; las series son de sensor completo; las series PNG no traen `StartCapture`, `EndCapture` ni `FrameCount`; `TimeZone = 0` (solo en el AVI).
-- **Pendiente tras esos `.txt`:**
-  - Un `.txt` real de la ASI585MC: texto exacto de la cabecera (SUPUESTO: la tabla lo deduce por analogía) y si es de sensor completo.
-  - **Truncado o redondeo** de las décimas de minuto del nombre (SUPUESTO): confirmar con otra serie cuyo `StartCapture` tenga la fracción de la décima ≥ 0,5. El ejemplo actual (5,2 décimas) no distingue los dos casos; hasta entonces, la hora se estima como `t0 + 1,5 s ± 4,5 s` (§2.3).
-  - Si ASICap dibuja la hora sobre la imagen cuando `Timestamp Frames = ON`: en ese caso esos píxeles quedan contaminados (§3.1).
-  - Unidades de `Brightness` en RAW8, con fotogramas oscuros (§3).
-  - Si la autoexposición está desactivada en todas las series (§3).
-- **Prueba de la fase Bayer con un PNG real de la ASI585MC** (estadística de los 4 subplanos 2×2, §8): decide si ASICap voltea antes de guardar y cuál es la diagonal verde. Sin distinguir rojo de azul, que sigue en la pregunta 3.
+- **Resuelto con el paquete del ROA y los `.txt` reales:**
+  - El `.txt` identifica la cámara por la cabecera `[modelo]` (`ZWO ASI2600MM Pro` y `ZWO ASI585MC Pro`, esta última observada en 300 ficheros).
+  - El `.txt` es **por fotograma** y los ajustes cambian dentro de una serie (§3).
+  - Las series son de sensor completo en las dos cámaras.
+  - Las series PNG no traen `StartCapture`, `EndCapture` ni `FrameCount`; `TimeZone = 0` (solo en el AVI).
+  - Hay hora por fotograma (`frame_times.csv`) y el nombre **trunca** las décimas de minuto (§2.3).
+  - La 585MC entrega el mosaico (`Raw Format = ON`), con `Flip = None`.
+- **Pendiente:**
+  - Si el rango de retardo de 0,2–1,1 s entre exposición y escritura vale para todos los fotogramas: solo se midió en el primero de cada sesión (§2.3). Opcional: copiar a `tests/data/asicap/` un `.txt` de RASA con ganancias variables.
+  - Si ASICap dibuja la hora sobre la imagen cuando `Timestamp Frames = ON` (§3.1).
+  - Unidades de `Brightness` en RAW8, con fotogramas oscuros (§3): la 585MC trae 3 y la 2600MM 1.
+  - Si la carpeta de sesión trunca al segundo (SUPUESTO de §2.3, regla 2).
+  - Rutas con caracteres no ASCII con `loadFrame` (stb) en Windows, PNG truncado con `stbi_load_16` y `cv::VideoCapture` con FFmpeg (§6.1).
+  - Medida del tiempo de `read()` de un PNG de 26 MP y de uno de 8 MP (§8).
+- **Verificación de la fase Bayer con un PNG real de la 585MC** (estadística de los 4 subplanos 2×2, §8). Ya sin la incógnita del volteo.
 - **RAW16:** número de bits válidos y alineación; se aplaza hasta tener material (afecta a D1).
 - **Estándar C++:** decidido, C++20.
 - **Incertidumbre de la hora en AVI:** el valor inicial (un periodo) se afina con un experimento.
-- **Rutas con caracteres no ASCII** con `cv::imread` en Windows, y valores devueltos por `cv::VideoCapture` con FFmpeg (se comprueban al implementar).
 - **Signo del desfase de `TimeZone` y a qué horas se aplica** (§2.3): se verifica cuando aparezca un caso real.

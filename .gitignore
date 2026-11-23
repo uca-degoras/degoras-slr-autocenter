@@ -74,3 +74,7 @@ output/
 # ===== Excepción: recortes pequeños para tests =====
 !tests/data/
 !tests/data/**
+
+# ===== Compilación .NET (plugin NINA de faster-astap) =====
+obj/
+bin/

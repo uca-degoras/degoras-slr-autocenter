@@ -1,0 +1,25 @@
+[ZWO ASI585MC Pro]
+Exposure = 100ms
+Auto Exp Max Exp = 30000ms
+Gain = 214
+Auto Exp Max Gain = 300
+Bin = 1
+Hardware Bin = OFF
+Mono Bin = OFF
+Brightness = 3
+Auto Exp Target Brightness = 100
+White Balance (R) = 55
+White Balance (B) = 75
+Capture Area Size = 3840 * 2160
+Flip = None
+Colour Format = RAW8
+Raw Format = ON
+Debayer Preview = ON
+Debayer Type = RGGB
+Temperature = 0.0 C
+High Speed Mode = OFF
+USB Limit = 80
+USB Port = 2.0
+StartX = 0
+StartY = 0
+Timestamp Frames = OFF
