@@ -1,0 +1,28 @@
+# Build output. The presets put builds under $DEVSYSTEM_BUILDTREES, outside this tree, so these patterns are a safety
+# net for anyone who configures in-source by mistake.
+*build*/
+*install*/
+
+# Per-developer CMake presets.
+CMakeUserPresets.json
+
+# Tool and editor state
+CMakeLists.txt.user
+.vscode/*
+.qtcreator/*
+.idea/
+
+# Logs, temporaries and the output of the tools
+*.log
+*.tmp
+*.autosave
+*.orig
+out/
+
+# Compiled output
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.exe

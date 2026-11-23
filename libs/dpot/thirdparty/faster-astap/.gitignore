@@ -1,0 +1,15 @@
+build/
+build-*/
+cmake-build-*/
+# `cmake --install build --prefix dist`, the Windows bundle
+dist/
+__pycache__/
+*.o
+*.a
+*.ini
+*.wcs
+*.log
+.idea/
+
+# Survey cutouts, refetch with tools/fetch_skyview_corpus.py
+corpus/

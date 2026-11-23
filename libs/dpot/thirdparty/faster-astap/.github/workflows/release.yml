@@ -1,0 +1,97 @@
+# Builds the wheels and publishes them.
+#
+# Publishing uses PyPI's Trusted Publishing.
+#
+# Then there are two ways to run this, and which one is used decides where it publishes:
+#   - "Run workflow" from the Actions tab publishes to TestPyPI, and never to
+#     PyPI, whatever tags point at the commit it runs on.
+#   - Pushing a v* tag starts this by itself and publishes to PyPI. There is
+#     nothing to click; the push is the trigger.
+
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+jobs:
+  wheels:
+    name: Wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Everything it builds and how it tests is in [tool.cibuildwheel] in pyproject.toml.
+      # This stays a plain invocation.
+      - uses: pypa/cibuildwheel@v4.1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build
+      - run: python -m build --sdist --outdir wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: wheelhouse/*.tar.gz
+
+  testpypi:
+    name: Publish to TestPyPI
+    # Manual runs only: a tag goes to the real index below.
+    if: github.event_name == 'workflow_dispatch'
+    needs: [ wheels, sdist ]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write  # the OIDC token Trusted Publishing is built on
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [ wheels, sdist ]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # The tag is what a reader will trust and the version inside the wheel
+      # is what PyPI will record, so the two have to agree.
+      - name: The tag and the built version must agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(ls dist/*.whl | head -1 | sed -E 's|.*/[^-]+-([^-]+)-.*|\1|')
+          echo "tag=$tag  built=$built"
+          if [ "$tag" != "$built" ]; then
+            echo "::error::tag v$tag does not match the built version $built - set the version in pyproject.toml and retag"
+            exit 1
+          fi
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

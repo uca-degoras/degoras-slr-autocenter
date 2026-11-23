@@ -12,6 +12,7 @@ desviación en píxeles respecto al centro óptico, mostrándolo en un overlay.
 | Carpeta | Contenido |
 |---|---|
 | `docs/` | Requisitos, diseño, registro de experimentos y actas |
+| `libs/dpot` | Librería del ROA (DegorasOpticalTracking, GPL-3.0-or-later), copiada **sin modificar**; ver `libs/dpot/docs/` |
 | `libs/frame_source` | Fuente de fotogramas: FITS, vídeo, simulador (sin Qt) |
 | `libs/core` | Preprocesado, detección, centroide, haz, vector, estados (sin Qt) |
 | `libs/astrometry` | Plate solving acotado (sin Qt) |
@@ -29,3 +30,12 @@ Los FITS y vídeos de observación **no** se suben al repositorio. Ubicación: _
 
 ## Flujo de trabajo
 Nada se sube directamente a `main`: rama propia → pull request → una aprobación → squash merge.
+
+## Librería dpot, licencia y bases de estrellas
+- `libs/dpot/` es la librería `dpot` de Ángel (ROA), copiada tal cual. Incluye faster-astap
+  (MPL-2.0, con su `LICENSE` en `libs/dpot/thirdparty/faster-astap/`) y stb (MIT o dominio público).
+- Como incorporamos código GPL-3.0-or-later, el repo lleva el texto de la GPL-3.0 en `LICENSE`.
+- Las bases de estrellas de ASTAP (D80, 1,3 GB; G05 opcional), las imágenes de prueba y el índice
+  de plate solving **no se suben**. Se descargan a la raíz del repo, en `databases/d80/` y
+  `databases/g05/` (instrucciones en `docs/dpot_databases_LEEME.txt`). `databases/`, `images/` e `index/`
+  están en `.gitignore`. Sin ellas los tests `IT_*` salen como Skipped.

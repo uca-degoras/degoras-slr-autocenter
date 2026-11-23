@@ -78,3 +78,19 @@ output/
 # ===== Compilación .NET (plugin NINA de faster-astap) =====
 obj/
 bin/
+
+# ===== Librería dpot (libs/dpot) =====
+# Los catálogos FK5 de la librería sí van al repo, aunque la regla "data/" de arriba los ocultaría.
+!libs/dpot/data/
+!libs/dpot/data/**
+# "Testing/" (CMake) coincide con libs/dpot/testing en Windows; "data/" con los datos de test de faster-astap.
+!libs/dpot/testing/
+!libs/dpot/thirdparty/faster-astap/tests/data/
+!libs/dpot/thirdparty/faster-astap/tests/data/**
+
+# Bases de estrellas de ASTAP (D80, G05), imágenes de prueba e índice de plate solving: NO van al repo.
+# Los tests de dpot los buscan en DPOT_DATA_DIR (aquí, la raíz del repo): databases/d80, databases/g05,
+# images/ e index/ (el índice de 0,9 GB se crea solo la primera vez). Ver docs/dpot_databases_LEEME.txt.
+/databases/
+/images/
+/index/
