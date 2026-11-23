@@ -1,14 +1,20 @@
-# Plan de issues – Fase 1 – Contratos
+# Plan de issues – Fases 1 y 2
 
-Issues de la fase de contratos del proyecto. Cada issue describe la tarea; el contenido del
-diseño se redacta en `docs/diseno/` y se revisa mediante pull request.
+Issues del proyecto. Cada issue describe la tarea; el diseño se redacta en `docs/diseno/`, el
+código en `libs/`, `apps/` o `prototypes/`, y todo se revisa mediante pull request.
 
-**Milestone de todas:** Fase 1 – Contratos
+**Milestones:** issues 1–9 → *Fase 1 – Contratos* (diseño). Issues 10–17 → *Fase 2 – Pipeline con
+datos de calibración* (implementación y prototipos que ya se pueden empezar).
 **Referencias:** apartados (§) de `docs/contexto_proyecto.md` (versión del 18/11/2026).
-**Orden recomendado:** 1 → 3 → 2 → 4 → 5 → 6. La 7, la 8 y la 9 pueden ir en paralelo.
+**Reparto:** por carga de trabajo, no por equipos de ámbito (ver la tabla del final). Cada persona
+redacta o programa al menos una issue y revisa varias. Los responsables son orientativos y se
+pueden cambiar de común acuerdo.
+**Orden recomendado:** Fase 1: 1 → 3 → 2 → 4 → 5 → 6; la 7, la 8 y la 9 en paralelo.
+Fase 2: la 13 y la 16 pueden empezar ya; la 10, la 11 y la 12 cuando se apruebe la 1; la 14 y la 15
+cuando exista la 13; la 17 cuando el ROA responda sobre SuperNOVAS.
 **Revisión:** basta con una aprobación para fusionar (regla de `main`). Cuando una issue tiene
 varios revisores, se espera la opinión de todos antes de fusionar; los marcados como
-opcionales no bloquean.
+opcionales no bloquean. Quien hace una PR no la aprueba.
 
 ---
 
@@ -16,7 +22,7 @@ opcionales no bloquean.
 
 - **Labels:** `diseño`, `docs`
 - **Responsable:** Juan · **Revisores:** Javi, Ramón
-- **Estado:** primera versión en revisión (`docs/diseno/fuente_fotogramas.md`). Pendiente de actualizar con el paquete `dpot` del ROA (§11): `.txt` por fotograma, ajustes por fotograma, `frame_times.csv`, ASI585MC sin volteo y tipo de imagen de `dpot`.
+- **Estado:** actualizado con el paquete `dpot` (Frame de `dpot`, `.txt` y ajustes por fotograma, hora desde `frame_times.csv`); en revisión (`docs/diseno/fuente_fotogramas.md`).
 - **Objetivo:** Documentar el contrato de `frame_source` que permita sustituir los ficheros (PNG, vídeo) por DegorasASI sin tocar el core.
 - **Requisito que cubre:** §3 (formato de las capturas, hora estimada, metadatos del `.txt`), §5 (Entrada; la arquitectura debe permitir DegorasASI) y §8.1.
 - **Depende de:** —
@@ -31,7 +37,7 @@ opcionales no bloquean.
 ## 2. Contrato de salida (resultado y JSON)
 
 - **Labels:** `diseño`, `docs`, `pregunta-ROA`
-- **Responsable:** Juan · **Revisores:** Jose (cumplimiento del §5 y del DERS), Dani (lo que muestra la interfaz)
+- **Responsable:** Dani · **Revisores:** Jose (cumplimiento del §5 y del DERS), Juan
 - **Objetivo:** Documentar la estructura de resultado que produce el core y su serialización a JSON (nlohmann-json).
 - **Requisito que cubre:** §5 (Salida) y §8.5.
 - **Depende de:** 1 (índice, hora y calidad del fotograma; descartados) y 3 (conversión px → arcsec).
@@ -45,7 +51,7 @@ opcionales no bloquean.
 ## 3. Contrato de calibración por cámara
 
 - **Labels:** `diseño`, `docs`, `pregunta-ROA`
-- **Responsable:** Juan · **Revisores:** Javi, Manulo (equipo de mapeo de estrellas, que también usa la calibración)
+- **Responsable:** Juan · **Revisores:** Manulo, Adriana
 - **Objetivo:** Documentar los parámetros de calibración de cada cámara, la conversión de píxeles a arcsec Az/El y el formato del fichero JSON que los carga, partiendo del `pointing::CameraModel` de `dpot` (escala, giro, paridad y eje ya implementados) y completando lo que le falta.
 - **Requisito que cubre:** §2 (tabla de telescopios y cámaras y sus consecuencias) y §8.3.
 - **Depende de:** 1 (`camera_id`, recorte StartX/StartY, volteo de adquisición) y 8 (uso de `dpot`).
@@ -62,7 +68,7 @@ opcionales no bloquean.
 ## 4. Máquina de estados del seguimiento
 
 - **Labels:** `diseño`, `docs`
-- **Responsable:** Juan · **Revisores:** Ramón, Mireya; opcionalmente Santi u otro analista, centrado en el requisito de robustez (§5)
+- **Responsable:** Juan · **Revisores:** Ramón, Mireya; opcional: Santi (requisito de robustez, §5)
 - **Objetivo:** Documentar los estados del seguimiento y las condiciones de transición entre ellos.
 - **Requisito que cubre:** §5 (pérdida de blanco sin excepciones ni cierres) y §6 (estabilidad y máquina de estados).
 - **Depende de:** 1 (fotogramas ilegibles y descartados) y 2 (qué se publica en cada estado).
@@ -76,7 +82,7 @@ opcionales no bloquean.
 ## 5. Contrato de la señal de montura
 
 - **Labels:** `diseño`, `docs`, `pregunta-ROA`
-- **Responsable:** Juan · **Revisores:** Javi
+- **Responsable:** Guille · **Revisores:** Adrián, Jose
 - **Objetivo:** Documentar la entrada `mount_signal` («montura aplicando offsets / en tránsito») y el comportamiento del core mientras está activa.
 - **Requisito que cubre:** §5 (señal de montura) y §8 (`mount_signal`).
 - **Depende de:** 4.
@@ -89,7 +95,7 @@ opcionales no bloquean.
 ## 6. Arquitectura de módulos y dependencias
 
 - **Labels:** `diseño`, `docs`
-- **Responsable:** Guille y Juan · **Revisores:** Ramón, Adrián (uno por equipo)
+- **Responsable:** Guille, con Juan · **Revisores:** Javi, Dani
 - **Objetivo:** Cerrar la arquitectura de la fase: módulos, responsabilidades, dependencias entre targets CMake y modos de la aplicación (estrellas, satélite, haz láser).
 - **Requisito que cubre:** §5 (una aplicación con tres modos; Qt solo en la interfaz) y §8 (módulos).
 - **Depende de:** 1–5.
@@ -102,7 +108,7 @@ opcionales no bloquean.
 ## 7. Plantilla del registro de experimentos y formato de volcado de la CLI
 
 - **Labels:** `diseño`, `experimento`, `docs`
-- **Responsable:** Mireya y Adriana · **Revisores:** Javi, Manulo
+- **Responsable:** Mireya y Adriana · **Revisores:** Ramón, Manulo
 - **Objetivo:** Definir la plantilla común del registro de experimentos y el formato CSV/JSON que vuelca la CLI, para comparar técnicas y alimentar la memoria de I+D.
 - **Requisito que cubre:** §8.7 (cli + tests) y §10 (registro de experimentos desde el primer día).
 - **Depende de:** 2 (campos del resultado).
@@ -114,7 +120,7 @@ opcionales no bloquean.
 ## 8. Modo estrellas: adopción de la librería `dpot` y Az/El con SuperNOVAS
 
 - **Labels:** `diseño`, `mapeo-estrellas`, `docs`
-- **Responsable:** Guille · **Revisores:** Manulo, Adrián
+- **Responsable:** Guille · **Revisores:** Adrián, Juan
 - **Objetivo:** Decidir y documentar cómo se usa la librería del ROA (`DegorasOpticalTracking`, `dpot`) en el modo estrellas, y diseñar el cálculo de Az/El observados con SuperNOVAS en lugar de `pointing/horizon.h`.
 - **Requisito que cubre:** §4 (método de referencia del ROA), §5 (plate solving, modo estrellas) y §11 (paquete del ROA y astrometría precisa).
 - **Depende de:** integración de `dpot` en `libs/dpot/` (PR de integración). Relacionada con la 3 (el `CameraModel` de `dpot` cubre parte de la calibración).
@@ -129,7 +135,7 @@ opcionales no bloquean.
 ## 9. Diseño de la interfaz: bocetos de los tres modos y overlay
 
 - **Labels:** `diseño`, `gui`, `docs`
-- **Responsable:** Dani · **Revisores:** Juan, Mireya
+- **Responsable:** Dani · **Revisores:** Mireya, Juan
 - **Objetivo:** Diseñar la interfaz Qt de la aplicación: los tres modos (estrellas, satélite y haz láser), las etiquetas de resultado y estado, y el overlay sobre la imagen.
 - **Requisito que cubre:** §4 (overlay de referencia del ROA), §5 (aplicación Qt simple, tres modos, salida como etiquetas y overlay) y §8.6 (gui).
 - **Depende de:** 2 (campos de la salida que muestra) y 4 (estados que se indican al operador).
@@ -139,4 +145,128 @@ opcionales no bloquean.
   - [ ] Indica cómo se muestran los estados (buscando, siguiendo, inestable, perdido) y el número de fotogramas descartados.
   - [ ] Lista los campos de la salida que necesita la interfaz (entrada para la issue 2).
   - [ ] Esqueleto Qt Widgets que muestra una imagen con un overlay de prueba, sin lógica de procesado (Qt solo en `apps/gui`).
+
+---
+
+# Fase 2 – Pipeline con datos de calibración
+
+Implementación y prototipos. Reglas comunes: PR pequeñas (un tema por PR), tests con datos
+sintéticos de solución conocida, compilar con ucrt64 y clang64, y cada técnica probada con su
+entrada en `docs/experimentos/` (también lo descartado).
+
+## 10. Lector del `.txt` de ASICap y metadatos por fotograma
+
+- **Labels:** `imagen-apuntado`
+- **Responsable:** Javi · **Revisores:** Adriana, Manulo
+- **Objetivo:** Implementar el lector del `.txt` por fotograma descrito en `fuente_fotogramas.md` (§3.1): cabecera con el modelo, `Clave = Valor` con unidades, claves obligatorias y opcionales, avisos.
+- **Requisito que cubre:** §3 y §11 del contexto; contrato de la issue 1.
+- **Depende de:** 1 (aprobada).
+- **Criterios de terminado:**
+  - [ ] Código en `libs/frame_source` sin Qt y sin excepciones hacia fuera.
+  - [ ] Identificación de cámara (configuración → cabecera → tamaño) con la comprobación cruzada y la del recorte.
+  - [ ] Reglas de aviso: `Raw Format`/`Debayer`, `Timestamp Frames = ON`, claves duplicadas; claves desconocidas ignoradas.
+  - [ ] Tests con los tres `.txt` reales de `tests/data/asicap/` y con casos sintéticos de error.
+
+## 11. `PngSequenceSource` y `MemoryFrameSource`
+
+- **Labels:** `imagen-apuntado`
+- **Responsable:** Manulo · **Revisores:** Mireya, Javi
+- **Objetivo:** Implementar la fuente de secuencias PNG sobre `dpot` (`io::loadFrame`) y la fuente en memoria para tests, según el contrato de la issue 1.
+- **Requisito que cubre:** §3, §5 (Entrada) y §8.1.
+- **Depende de:** 1 (aprobada) y 10 (lector del `.txt`).
+- **Criterios de terminado:**
+  - [ ] Orden por `NNNN`, índice relativo al primero, huecos como `Corrupt`, duplicados avisados.
+  - [ ] Validación de la cabecera PNG (IHDR), ajustes por fotograma y herencia si falta el `.txt`.
+  - [ ] Hora por prioridad: `frame_times.csv` → carpeta de sesión → nombre, con calidad e incertidumbre.
+  - [ ] `skip_to` sin decodificar; vista `cv::Mat` sin copia sobre el `Frame` de `dpot`.
+  - [ ] Tests: orden, huecos, corruptos, horas y «ningún caso lanza».
+
+## 12. `PacedSource` (ritmo Fast / Realtime)
+
+- **Labels:** `imagen-apuntado`
+- **Responsable:** Adrián · **Revisores:** Adriana, Ramón
+- **Objetivo:** Implementar el decorador de ritmo del contrato: Fast sin descarte; Realtime entrega el fotograma del instante actual, salta con `skip_to` y cuenta `dropped` y `dropped_decoded`.
+- **Requisito que cubre:** §5 (~100 ms por fotograma, simulador en vivo).
+- **Depende de:** 1 (aprobada). Se prueba con `MemoryFrameSource` (11).
+- **Criterios de terminado:**
+  - [ ] Reloj inyectable; Realtime sin periodo falla en `open()`; `request_stop()` despierta las esperas.
+  - [ ] Tests con reloj simulado, incluido el de «los saltados no se decodifican».
+
+## 13. Generador de imágenes sintéticas de posición conocida
+
+- **Labels:** `experimento`
+- **Responsable:** Ramón · **Revisores:** Adriana, Adrián
+- **Objetivo:** Script (Python, marcado PRUEBA) que genera series PNG con su `.txt` y un fichero de verdad (posición real de cada objeto): fondo con ruido, estrellas puntuales o en trazo, satélite tenue, traza del haz y saturación, para las dos cámaras (escala, FWHM, Bayer RGGB o mono).
+- **Requisito que cubre:** §2 (muestreo: ~1,4 px FWHM en la RASA, ~36 px en la 585MC) y §10 (registro de experimentos).
+- **Depende de:** —
+- **Criterios de terminado:**
+  - [ ] Parámetros configurables y semilla fija (reproducible).
+  - [ ] Series de ejemplo pequeñas en `tests/data/` y el resto generadas bajo demanda.
+  - [ ] Documentado en `prototypes/python/` y en el registro de experimentos.
+
+## 14. Prototipo: detección y centroide del satélite
+
+- **Labels:** `experimento`, `imagen-apuntado`
+- **Responsable:** Ramón · **Revisores:** Mireya, Juan
+- **Objetivo:** Probar en Python técnicas de fondo, detección y centroide subpíxel (umbral kσ, centroide en ventana, centro de gravedad, ajuste gaussiano), apoyándose en lo que ya hace `dpot` (`detectStars`, `findBlobs`, `measureSpot`), y distinguir satélite de estrella por elongación y movimiento.
+- **Requisito que cubre:** §5 (modo satélite, relativo al centro), §6 (flujo de procesado).
+- **Depende de:** 13. Se valida también con las series reales del 28/10 (estrellas).
+- **Criterios de terminado:**
+  - [ ] Error del centroide medido frente a la verdad sintética, por técnica y por cámara.
+  - [ ] Falsos positivos y negativos medidos; coste por fotograma estimado.
+  - [ ] Saturación detectada en bruto, antes de filtrar.
+  - [ ] Entradas en el registro de experimentos con la técnica elegida y las descartadas.
+
+## 15. Prototipo: detección del haz láser
+
+- **Labels:** `experimento`, `imagen-apuntado`
+- **Responsable:** Javi · **Revisores:** Mireya, Dani
+- **Objetivo:** Probar en Python la detección de la traza verde: canal verde en la ASI585MC (mosaico RGGB) y forma o diferencia temporal en la ASI2600MM (mono). Evaluar el `greenExcess` de `dpot`.
+- **Requisito que cubre:** §5 (haz láser: no siempre se verá; si se detecta, se añade a la salida) y §6.
+- **Depende de:** 13 (traza sintética). Datos reales con haz: pendientes del ROA.
+- **Criterios de terminado:**
+  - [ ] Detección y posición medidas frente a la verdad sintética; casos sin haz sin falsos positivos.
+  - [ ] Coste por fotograma estimado y limitaciones documentadas.
+  - [ ] Entradas en el registro de experimentos.
+
+## 16. Compilación reproducible y verificación de `dpot`
+
+- **Labels:** `mapeo-estrellas`
+- **Responsable:** Adrián · **Revisores:** Manulo, Guille
+- **Objetivo:** `CMakePresets.json` en la raíz (ucrt64 y clang64, Debug y Release, como los de `dpot`) para evitar el problema del PATH, y verificar `dpot` con datos: base D80 descargada fuera del repo, `IT_SolveRasa` e `IT_SpotSfel` ejecutados.
+- **Requisito que cubre:** §7 (entorno) y §11 (paquete del ROA).
+- **Depende de:** —
+- **Criterios de terminado:**
+  - [ ] Presets funcionando en los dos toolchains; README con la forma de compilar.
+  - [ ] Tests de integración ejecutados; tiempo de plate solving medido (¿12–17 ms?) y anotado en el registro de experimentos.
+
+## 17. SuperNOVAS: instalación y cálculo de Az/El observados
+
+- **Labels:** `mapeo-estrellas`
+- **Responsable:** Manulo · **Revisores:** Adrián, Guille
+- **Objetivo:** Dejar SuperNOVAS instalable en los dos toolchains (solución del ROA o overlay port en el repo con `SUPERNOVAS_USE_PTHREAD`) e implementar el cálculo de Az/El observados según el diseño de la issue 8.
+- **Requisito que cubre:** §11 (SuperNOVAS, EOP, refracción).
+- **Depende de:** respuesta del ROA sobre el fallo de `threads.h` y diseño de la issue 8.
+- **Criterios de terminado:**
+  - [ ] Instalación documentada en el README y probada en ucrt64 y clang64.
+  - [ ] Az/El de estrellas FK5 de las series del 28/10 comparados con la aproximación de `pointing/horizon.h` y anotados en el registro de experimentos.
+
+---
+
+## Reparto de carga
+
+| Persona | Rol | Redacta / programa | Revisa |
+|---|---|---|---|
+| Juan | Diseñador | 1, 3, 4 (y 6 con Guille) | 2, 8, 9, 14 |
+| Guille | Diseñador | 5, 6, 8 | 16, 17 |
+| Dani | Diseñador | 2, 9 | 6, 15 |
+| Javi | Programador | 10, 15 | 1, 6, 11 |
+| Ramón | Programador | 13, 14 | 1, 4, 7, 12 |
+| Manulo | Programador | 11, 17 | 3, 7, 10, 16 |
+| Adrián | Programador | 12, 16 | 5, 8, 13, 17 |
+| Mireya | Tester | 7 (con Adriana) | 4, 9, 11, 14, 15 |
+| Adriana | Tester | 7 (con Mireya) | 3, 10, 12, 13 |
+| Jose | Analista | DERS y DAFO | 2, 5 |
+| Santi | Analista | DERS y actas | 4 (opcional) |
+| Antonio | Líder | Supervisión y documento final | — |
 
