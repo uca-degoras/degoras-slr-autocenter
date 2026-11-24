@@ -174,3 +174,5 @@ Es el punto de partida del modo estrellas. Antes de seguir con los contratos pro
 - **Giro de la RASA:** basta con el **valor fijo** (−0,76°); no hace falta modelar su dependencia con la elevación.
 - **Paquete `dpot`:** no tiene repositorio propio; es una librería de prueba de concepto. **Libertad completa**: podemos ponerla donde queramos, integrarla como queramos y modificarla. (Los ficheros de faster-astap siguen bajo MPL-2.0: conservar su licencia y atribución.)
 
+**SuperNOVAS (23/11/2026):** el port de la baseline (1.7.2) no compila con MinGW (`novas-mutex.h` busca `<threads.h>`, que MSYS2 no trae). Ángel facilitó un **overlay port de SuperNOVAS 1.8.0** con el parche `mingw-srwlock.patch` (en `_WIN32` usa la API de bloqueo de Windows). Se instala con la feature C++: `vcpkg install "supernovas[cpp]" --overlay-ports=<repo>/vcpkg-overlays`, en los dos toolchains. Al ser la 1.8, los segundos intercalares van fijados en la librería (comprobar en su `novas.h`).
+
