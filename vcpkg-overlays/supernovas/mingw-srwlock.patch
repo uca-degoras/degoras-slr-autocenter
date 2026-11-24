@@ -1,0 +1,13 @@
+diff --git a/include/novas-mutex.h b/include/novas-mutex.h
+index 91434c4..6f39ea9 100644
+--- a/include/novas-mutex.h
++++ b/include/novas-mutex.h
+@@ -25,7 +25,7 @@ typedef pthread_mutex_t           lock_type;
+ #  define novas_destroy_lock      pthread_mutex_destroy
+ #  define NOVAS_LOCK_INITIALIZER  PTHREAD_MUTEX_INITIALIZER
+ 
+-#elif defined(_MSC_VER)
++#elif defined(_WIN32) // MSVC and MinGW: MSYS2 (ucrt64, clang64) ships no C11 <threads.h>
+ #  include <windows.h>
+ 
+ #  define THREAD_SAFE             1

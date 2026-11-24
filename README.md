@@ -25,6 +25,25 @@ desviación en píxeles respecto al centro óptico, mostrándolo en un overlay.
 Se compila dentro del Dev Drive del ROA (MSYS2 + vcpkg, kits clang64 y ucrt64 de Qt Creator).
 Clonar el repo en `<unidad>:\workspace`. Solo CMake.
 
+## Requisitos
+**SuperNOVAS 1.8.0** (Az/El observados de estrellas, `docs/contexto_proyecto.md` §11). El port de la baseline
+(1.7.2) no compila con MinGW, porque MSYS2 no trae `<threads.h>`. Ángel (ROA) facilitó un overlay port con el
+parche `mingw-srwlock.patch`, que está en `vcpkg-overlays/supernovas/`. No toca `S:/overlays`.
+
+Instalación, una vez por toolchain, desde la shell de **cada** lanzador (el vcpkg y el triplet son los del entorno),
+en la raíz del repo:
+
+| Lanzador | Triplet |
+|---|---|
+| `S:\env\launcher\degoraspocprocvideo_ucrt64_env_launcher.bat` | `x64-mingw-ucrt-dynamic-release` |
+| `S:\env\launcher\degoraspocprocvideo_clang64_env_launcher.bat` | `x64-mingw-clang-dynamic-release` |
+
+    vcpkg install "supernovas[cpp]" --overlay-ports=vcpkg-overlays
+
+`--overlay-ports` se suma a `VCPKG_OVERLAY_PORTS` del lanzador, así que los overlays del ROA siguen activos.
+Comprobación: `vcpkg list supernovas` debe mostrar `1.8.0#1` en el triplet. Uso en CMake:
+`find_package(supernovas CONFIG REQUIRED)` y `supernovas::core` (C) y `supernovas::cpp` (C++).
+
 ## Datos
 Los FITS y vídeos de observación **no** se suben al repositorio. Ubicación: _(por definir)_.
 
