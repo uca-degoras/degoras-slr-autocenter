@@ -75,6 +75,10 @@ output/
 !tests/data/
 !tests/data/**
 
+# ===== Compilación .NET (plugin NINA de faster-astap) =====
+obj/
+bin/
+
 # ===== Librería dpot (libs/dpot) =====
 # Los catálogos FK5 de la librería sí van al repo, aunque la regla "data/" de arriba los ocultaría.
 !libs/dpot/data/
